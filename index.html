@@ -1,0 +1,3424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+<title>Receiptly — Business Receipt Generator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+<script src="https://js.paystack.co/v1/inline.js"></script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+  import {
+    getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs
+  } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCfGkrpTxUyvr_5IUDerHVgWdfCvP2F6W0",
+    authDomain: "reciptify-1c7ef.firebaseapp.com",
+    projectId: "reciptify-1c7ef",
+    storageBucket: "reciptify-1c7ef.firebasestorage.app",
+    messagingSenderId: "527864772523",
+    appId: "1:527864772523:web:a362a52b448e866398c4ee"
+  };
+
+  const fbApp = initializeApp(firebaseConfig);
+  const db = getFirestore(fbApp);
+
+  // Expose a small wrapper on window so the rest of the (non-module) app script
+  // can use Firestore without itself being a module. Mirrors the shape of the
+  // earlier window.storage API (get/set/delete/list) so the rest of the code
+  // changes minimally.
+  window.fb = {
+    async get(collectionName, id) {
+      const ref = doc(db, collectionName, id);
+      const snap = await getDoc(ref);
+      return snap.exists() ? snap.data() : null;
+    },
+    async set(collectionName, id, data) {
+      const ref = doc(db, collectionName, id);
+      await setDoc(ref, data);
+      return true;
+    },
+    async delete(collectionName, id) {
+      const ref = doc(db, collectionName, id);
+      await deleteDoc(ref);
+      return true;
+    },
+    async listAll(collectionName) {
+      const colRef = collection(db, collectionName);
+      const snap = await getDocs(colRef);
+      const out = [];
+      snap.forEach(d => out.push({ id: d.id, ...d.data() }));
+      return out;
+    }
+  };
+
+  // Signal readiness to the main app script, which boots on this event
+  window.dispatchEvent(new Event('firebase-ready'));
+</script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --accent:#7c5cfc;--accent2:#a78bfa;--accent-glow:rgba(124,92,252,0.25);
+  --bg:#0f0f13;--surface:#1a1a22;--surface2:#22222e;--surface3:#2a2a38;
+  --border:rgba(255,255,255,0.07);--border-strong:rgba(255,255,255,0.13);
+  --text:#f0eeff;--text-muted:#9490b0;--text-dim:#4a4760;
+  --radius:14px;--rad-sm:9px;--rad-xs:6px;
+  --green:#22c55e;--amber:#f59e0b;--red:#ef4444;
+}
+.light{
+  --bg:#f5f4ff;--surface:#ffffff;--surface2:#f0eeff;--surface3:#e8e5ff;
+  --border:rgba(124,92,252,0.1);--border-strong:rgba(124,92,252,0.2);
+  --text:#1a1530;--text-muted:#6b5f8c;--text-dim:#b0a8cc;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;transition:background .3s,color .3s}
+
+/* HEADER */
+.app-header{position:sticky;top:0;z-index:30;background:var(--bg);border-bottom:1px solid var(--border);padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.logo{display:flex;align-items:center;gap:9px}
+.logo-icon{width:34px;height:34px;background:var(--accent);border-radius:10px;display:flex;align-items:center;justify-content:center}
+.logo-icon svg{width:18px;height:18px;stroke:#fff;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.logo-text{font-size:18px;font-weight:700;letter-spacing:-0.02em;color:var(--text)}
+.logo-text span{color:var(--accent2)}
+.header-right{display:flex;align-items:center;gap:8px}
+.mode-btn{width:36px;height:36px;border-radius:50%;background:var(--surface2);border:1px solid var(--border-strong);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .2s}
+.mode-btn svg{width:17px;height:17px;stroke:var(--text-muted);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.sub-badge{font-size:11px;font-weight:600;padding:4px 10px;border-radius:20px;background:rgba(124,92,252,0.15);color:var(--accent2);border:1px solid rgba(124,92,252,0.25)}
+
+/* TABS */
+.tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{flex:1;min-width:80px;padding:12px 8px;text-align:center;font-size:12px;font-weight:600;color:var(--text-muted);border:none;background:none;cursor:pointer;white-space:nowrap;position:relative;letter-spacing:0.01em;transition:color .2s}
+.tab.active{color:var(--accent2)}
+.tab.active::after{content:'';position:absolute;bottom:0;left:15%;right:15%;height:2px;background:var(--accent);border-radius:2px 2px 0 0}
+
+/* PAGES */
+.page{display:none;padding:18px;padding-bottom:110px;max-width:480px;margin:0 auto}
+.page.active{display:block}
+
+/* FORM ELEMENTS */
+.section-title{font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-dim);margin:22px 0 10px;display:flex;align-items:center;gap:8px}
+.section-title::after{content:'';flex:1;height:1px;background:var(--border)}
+.section-title:first-child{margin-top:0}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:6px;letter-spacing:0.03em;text-transform:uppercase}
+.field input,.field select,.field textarea{width:100%;padding:12px 14px;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--rad-sm);color:var(--text);font-size:14px;font-family:inherit;appearance:none;-webkit-appearance:none;transition:border-color .15s,box-shadow .15s}
+.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
+.field input::placeholder,.field textarea::placeholder{color:var(--text-dim)}
+.field textarea{resize:vertical;min-height:70px}
+.field select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239490b0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;padding-right:38px}
+.field select option{background:var(--surface)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+
+/* COLOR PICKER */
+.color-row{display:flex;align-items:center;gap:10px}
+.color-swatch{width:44px;height:44px;border-radius:var(--rad-sm);border:1px solid var(--border-strong);cursor:pointer;overflow:hidden}
+.color-swatch input[type=color]{width:56px;height:56px;border:none;padding:0;cursor:pointer;margin:-6px}
+.font-row{display:flex;gap:8px;flex-wrap:wrap}
+.font-chip{padding:6px 12px;border:1px solid var(--border-strong);border-radius:20px;font-size:12px;cursor:pointer;background:var(--surface2);color:var(--text-muted);transition:all .15s}
+.font-chip.active{background:var(--accent);border-color:var(--accent);color:#fff}
+
+/* LOGO UPLOAD */
+.logo-upload{border:1px dashed var(--border-strong);border-radius:var(--rad-sm);padding:16px;text-align:center;cursor:pointer;transition:border-color .15s;position:relative;overflow:hidden}
+.logo-upload:hover{border-color:var(--accent)}
+.logo-upload input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.logo-upload p{font-size:12px;color:var(--text-muted)}
+.logo-preview{width:60px;height:60px;object-fit:contain;margin:0 auto 8px;display:block;border-radius:6px}
+
+.contract-upload{border:1px dashed var(--border-strong);border-radius:var(--rad-sm);padding:16px;text-align:center;cursor:pointer;transition:border-color .15s;position:relative;overflow:hidden}
+.contract-upload:hover{border-color:var(--accent)}
+.contract-upload input{position:absolute;inset:0;opacity:0;cursor:pointer}
+#contract-upload-hint{font-size:12px;color:var(--text-muted)}
+.contract-file-row{display:flex;align-items:center;gap:10px;justify-content:center}
+.contract-file-name{font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px}
+.contract-remove-btn{position:relative;z-index:5;border:none;background:rgba(239,68,68,.12);color:#ef4444;width:22px;height:22px;border-radius:50%;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+
+/* LINE ITEMS */
+.line-items{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
+.line-item{background:var(--surface2);border:1px solid var(--border);border-radius:var(--rad-sm);padding:10px 12px;display:grid;grid-template-columns:1fr 56px 74px 50px 28px;gap:6px;align-items:center}
+.line-item input{width:100%;background:transparent;border:none;color:var(--text);font-size:13px;font-family:inherit;padding:4px 6px;border-radius:4px;border:1px solid transparent}
+.line-item input:focus{outline:none;border-color:var(--accent);background:var(--surface)}
+.line-item input::placeholder{color:var(--text-dim)}
+.line-item-remove{width:24px;height:24px;border:none;background:rgba(239,68,68,0.15);border-radius:4px;color:#ef4444;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;transition:background .15s}
+.line-item-remove:hover{background:rgba(239,68,68,0.3)}
+.line-hdr{display:grid;grid-template-columns:1fr 56px 74px 50px 28px;gap:6px;padding:0 12px;margin-bottom:4px}
+.line-hdr span{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-dim)}
+.add-line-btn{width:100%;padding:10px;border:1px dashed var(--border-strong);border-radius:var(--rad-sm);background:transparent;color:var(--accent2);font-size:13px;font-weight:500;font-family:inherit;cursor:pointer;transition:all .15s}
+.add-line-btn:hover{background:rgba(124,92,252,0.08);border-color:var(--accent)}
+
+/* GENERATE BTN */
+.generate-btn{position:fixed;bottom:20px;left:18px;right:18px;z-index:25;max-width:480px;margin:0 auto;height:52px;background:var(--accent);border:none;border-radius:var(--radius);color:#fff;font-size:15px;font-weight:700;font-family:inherit;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 24px rgba(124,92,252,0.4);transition:all .15s}
+.generate-btn:active{transform:scale(0.98);background:#6b4de6}
+.generate-btn svg{width:18px;height:18px;stroke:#fff;fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+
+/* FREE COUNTER BANNER */
+.free-banner{background:rgba(124,92,252,0.12);border:1px solid rgba(124,92,252,0.25);border-radius:var(--rad-sm);padding:12px 14px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.free-banner p{font-size:12px;color:var(--accent2);font-weight:500}
+.setup-banner{background:var(--surface2);border:1px solid var(--border-strong);border-radius:var(--rad-sm);padding:12px 14px;margin-bottom:16px}
+.setup-banner-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.setup-banner-title{font-size:12px;font-weight:700;color:var(--text)}
+.setup-banner-title span{color:var(--accent2)}
+.setup-banner-close{background:none;border:none;color:var(--text-dim);font-size:16px;cursor:pointer;line-height:1;padding:2px 4px}
+.setup-banner-bar{height:5px;border-radius:3px;background:var(--surface3);overflow:hidden;margin-bottom:10px}
+.setup-banner-fill{height:100%;background:var(--accent);border-radius:3px;transition:width .25s}
+.setup-banner-link{font-size:12px;font-weight:700;color:var(--accent2);cursor:pointer;display:inline-flex;align-items:center;gap:4px}
+.free-count{font-size:20px;font-weight:700;color:var(--accent2);white-space:nowrap}
+
+/* PAYMENT STATUS BADGES (used on receipts) */
+.r-status-badge{font-size:11px;font-weight:800;padding:4px 10px;border-radius:20px}
+.paid{background:rgba(34,197,94,.15);color:#22c55e}
+.part{background:rgba(245,158,11,.15);color:#f59e0b}
+.pending{background:rgba(239,68,68,.15);color:#ef4444}
+
+/* ===== INVOICE / RECEIPT DOCUMENT — clean Bookipi-style layout, shared by both ===== */
+.invoice-wrap,.receipt-wrap{background:#ffffff;color:#1a1a2e;border-radius:8px;overflow:hidden;border:1px solid #e5e5e5;position:relative;font-family:var(--rf,inherit);padding:28px 28px 0}
+.inv-logo{max-width:120px;max-height:70px;width:auto;height:auto;object-fit:contain;display:block;flex-shrink:0}.r-logo{width:auto;max-width:140px;height:auto;max-height:56px;object-fit:contain;display:block;margin-bottom:10px}.inv-header-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px}.inv-header-biz{display:flex;flex-direction:column;justify-content:flex-end}
+.inv-title,.r-doc-title{font-size:24px;font-weight:700;color:#1a1a2e;margin-bottom:16px;letter-spacing:0}
+.inv-biz-name,.r-biz-name{font-size:14px;font-weight:700;color:#1a1a2e;margin-bottom:4px}
+.inv-biz-detail,.r-biz-detail{font-size:11px;font-weight:400;color:#6b6b78;line-height:1.6}
+.inv-header{margin-bottom:20px}
+.inv-info-row{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;border:1px solid #e5e5e5;border-radius:6px;padding:14px 16px;margin-bottom:20px;background:#fafafb}
+.inv-billto-label,.r-billto-label{font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#9a9aa8;margin-bottom:5px}
+.inv-billto-name,.r-billto-name{font-size:14px;font-weight:700;color:#1a1a2e;margin-bottom:3px}
+.inv-billto-detail,.r-billto-detail{font-size:11px;font-weight:400;color:#6b6b78;line-height:1.5}
+.inv-meta-block{text-align:right;flex-shrink:0}
+.inv-meta-row{font-size:11px;color:#1a1a2e;margin-bottom:5px;white-space:nowrap}
+.inv-meta-row .lbl{font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9a9aa8;display:block;margin-bottom:1px}
+.inv-table,.r-table{width:100%;border-collapse:collapse;margin-bottom:4px}
+.inv-table thead tr,.r-table thead tr{background:#f4f4f6}
+.inv-table th,.r-table th{font-size:9px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#6b6b78;padding:9px 10px;text-align:left}
+.inv-table th:not(:first-child),.r-table th:not(:first-child){text-align:right}
+.inv-table td,.r-table td{font-size:12px;font-weight:400;color:#1a1a2e;padding:10px 10px;border-bottom:1px solid #ececef;vertical-align:top}
+.inv-table td:not(:first-child),.r-table td:not(:first-child){text-align:right;white-space:nowrap}
+.inv-table td:last-child,.r-table td:last-child{font-weight:500}
+.inv-table td.dim,.r-table td.dim{color:#9a9aa8;font-size:11px;padding-top:0}
+.inv-item-sub{font-size:11px;color:#9a9aa8;line-height:1.7;margin-top:2px}
+.inv-totals{margin-top:6px;display:flex;justify-content:flex-end}
+.inv-totals-box{min-width:200px}
+.inv-total-row{display:flex;justify-content:space-between;padding:6px 0;font-size:12px;font-weight:400;color:#1a1a2e}
+.inv-total-row.grand{border-top:1px solid #e5e5e5;margin-top:6px;padding-top:14px;font-size:14px;font-weight:700;color:#1a1a2e}
+.r-totals{margin-top:14px;display:flex;flex-direction:column;gap:6px}
+.r-total-row{display:flex;justify-content:space-between;align-items:center}
+.r-total-row.main .label{font-size:12px;font-weight:600;color:#6b6b78}
+.r-total-row.main .val{font-size:20px;font-weight:700;color:var(--inv-accent,#1a1a2e)}
+.r-balance{font-size:12px;font-weight:500;color:#6b6b78;margin-top:4px;text-align:right}
+.inv-payment-box,.r-payment-box{margin-top:22px;padding-top:0}
+.inv-payment-title,.r-payment-title{font-size:11px;font-weight:700;color:#1a1a2e;margin-bottom:6px}
+.inv-payment-row,.r-payment-row{font-size:11px;font-weight:400;color:#3a3a48;margin-bottom:2px}
+.inv-payment-row .lbl,.r-payment-row .lbl{color:#3a3a48}
+.inv-pkg-box{margin-top:18px;border:1px solid #e5e5e5;border-radius:6px;padding:14px 16px;background:#fafafb}
+.inv-pkg-title{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#6b6b78;margin-bottom:10px}
+.inv-pkg-row{display:flex;justify-content:space-between;font-size:11px;padding:3px 0;color:#1a1a2e}
+.inv-pkg-row .lbl{color:#9a9aa8;font-size:11px}
+.inv-pkg-desc{font-size:11px;color:#9a9aa8;font-style:italic;margin:4px 0 6px;line-height:1.5}
+.inv-terms,.r-note{font-size:11px;font-weight:400;color:#9a9aa8;margin-top:16px;line-height:1.6}
+.inv-contract-row{display:flex;align-items:center;gap:8px;margin-top:14px;padding:10px 12px;background:#fafafb;border:1px solid #e5e5e5;border-radius:6px;cursor:pointer;transition:border-color .15s}
+.inv-contract-row:hover{border-color:#bcbccc}
+.inv-contract-icon{font-size:16px}
+.inv-contract-label{font-size:12px;font-weight:500;color:#1a1a2e;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.inv-contract-view{font-size:11px;font-weight:700;color:var(--inv-accent,#3a6df0);white-space:nowrap}
+.inv-footer,.r-footer{margin:24px -28px 0;padding:14px 28px;background:#eef4ff;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.inv-footer-text,.r-footer-text{font-size:11px;font-weight:500;color:#3a3a48}
+.r-footer-brand{font-size:10px;font-weight:700;color:#9a9aa8;letter-spacing:.05em}
+.inv-paid-stamp{position:absolute;top:90px;right:28px;transform:rotate(-10deg);border:3px solid #22c55e;color:#22c55e;font-size:20px;font-weight:800;letter-spacing:.08em;padding:4px 14px;border-radius:8px;opacity:.85;z-index:5}
+.inv-unpaid-badge{display:inline-block;font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;background:rgba(239,68,68,.1);color:#ef4444;margin-top:4px}
+.r-service-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:10px;font-weight:600;margin-top:6px}
+
+/* ACTION BUTTONS */
+.action-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+.action-grid.row2{grid-template-columns:repeat(3,1fr)}
+.action-grid-4{grid-template-columns:repeat(4,1fr)}
+.act-btn{height:56px;border:1px solid var(--border-strong);border-radius:var(--rad-sm);background:var(--surface2);color:var(--text);font-size:11px;font-weight:600;font-family:inherit;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;transition:all .15s;letter-spacing:0.02em}
+.act-btn:active{transform:scale(0.96)}
+.act-btn svg{width:20px;height:20px;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.act-btn.wa{border-color:rgba(37,211,102,.3);color:#25d366}.act-btn.wa svg{stroke:#25d366}
+.act-btn.fb{border-color:rgba(24,119,242,.3);color:#1877f2}.act-btn.fb svg{stroke:#1877f2}
+.act-btn.ig{border-color:rgba(225,48,108,.3);color:#e1306c}.act-btn.ig svg{stroke:#e1306c}
+.act-btn.img{border-color:rgba(124,92,252,.35);color:var(--accent2)}.act-btn.img svg{stroke:var(--accent2)}
+.act-btn.pdf{border-color:rgba(239,68,68,.3);color:#ef4444}.act-btn.pdf svg{stroke:#ef4444}
+.act-btn.new{border-color:rgba(34,197,94,.3);color:#22c55e}.act-btn.new svg{stroke:#22c55e}
+.act-btn.email{border-color:rgba(59,130,246,.35);color:#3b82f6}.act-btn.email svg{stroke:#3b82f6}
+
+/* PLAN CARDS */
+.plan-grid{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
+.plan-card{border:2px solid var(--border-strong);border-radius:var(--rad-sm);padding:12px 14px;cursor:pointer;transition:all .15s;position:relative;display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--surface)}
+.plan-card.selected{border-color:var(--accent);background:rgba(124,92,252,0.07)}
+.plan-card .plan-left{display:flex;flex-direction:column;gap:2px}
+.plan-card .plan-name{font-size:14px;font-weight:700;color:var(--text)}
+.plan-card .plan-duration{font-size:11px;color:var(--text-muted);font-weight:500}
+.plan-card .plan-right{display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0}
+.plan-card .plan-price{font-size:18px;font-weight:800;color:var(--accent2)}
+.plan-card .plan-per{font-size:10px;color:var(--text-dim);font-weight:500}
+.plan-card .plan-badge{position:absolute;top:-1px;right:10px;font-size:9px;font-weight:800;letter-spacing:0.07em;text-transform:uppercase;background:var(--accent);color:#fff;padding:3px 8px;border-radius:0 0 6px 6px}
+.plan-radio{width:18px;height:18px;border-radius:50%;border:2px solid var(--border-strong);flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.plan-card.selected .plan-radio{border-color:var(--accent);background:var(--accent)}
+.plan-radio-dot{width:7px;height:7px;border-radius:50%;background:#fff;display:none}
+.plan-card.selected .plan-radio-dot{display:block}
+
+/* SUBSCRIBE MODAL */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;display:none;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(6px)}
+.modal-bg.show{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius);padding:24px;max-width:380px;width:100%;text-align:center}
+.modal h2{font-size:22px;font-weight:800;color:var(--text);margin-bottom:8px}
+.modal p{font-size:14px;color:var(--text-muted);line-height:1.6;margin-bottom:20px}
+.modal-price{font-size:36px;font-weight:800;color:var(--accent2);margin-bottom:4px}
+.modal-price span{font-size:16px;font-weight:500;color:var(--text-muted)}
+.modal-features{text-align:left;margin:16px 0;display:flex;flex-direction:column;gap:8px}
+.modal-feat{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text)}
+.modal-feat svg{width:16px;height:16px;stroke:#22c55e;fill:none;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.sub-btn{width:100%;height:50px;background:var(--accent);border:none;border-radius:var(--rad-sm);color:#fff;font-size:15px;font-weight:700;font-family:inherit;cursor:pointer;margin-bottom:10px;transition:all .15s}
+.sub-btn:hover{background:#6b4de6}
+.sub-cancel{font-size:12px;color:var(--text-dim);cursor:pointer;text-decoration:underline}
+
+/* SETTINGS PAGE */
+.settings-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px}
+.settings-card h3{font-size:13px;font-weight:700;color:var(--text);margin-bottom:14px}
+
+/* TOAST */
+.toast{position:fixed;bottom:85px;left:50%;transform:translateX(-50%) translateY(10px);background:var(--surface3);color:var(--text);font-size:13px;padding:10px 18px;border-radius:24px;border:1px solid var(--border-strong);opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;white-space:nowrap;z-index:90;font-weight:500}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* CUSTOMER CARE FLOATING BUTTON */
+.care-btn{position:fixed;bottom:90px;right:18px;width:54px;height:54px;border-radius:50%;background:#25D366;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(0,0,0,.35);z-index:85;cursor:pointer;border:none;transition:transform .15s}
+.care-btn:hover{transform:scale(1.06)}
+.care-btn svg{width:28px;height:28px;fill:#fff}
+@media(min-width:640px){.care-btn{bottom:30px;right:30px}}
+
+/* SPINNER */
+.spinner-ov{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:80;display:none;align-items:center;justify-content:center;flex-direction:column;gap:14px;backdrop-filter:blur(4px)}
+.spinner-ov.show{display:flex}
+.spinner{width:38px;height:38px;border:3px solid rgba(124,92,252,.2);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+.spinner-lbl{font-size:13px;color:var(--text-muted)}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* EMPTY STATE */
+.empty-state{text-align:center;padding:50px 20px}
+.empty-state svg{width:46px;height:46px;stroke:var(--text-dim);fill:none;stroke-width:1.2;stroke-linecap:round;stroke-linejoin:round;margin-bottom:14px}
+.empty-state p{font-size:14px;color:var(--text-muted);line-height:1.6}
+
+/* HISTORY */
+.history-month-group{margin-bottom:14px}
+.history-month-header{display:flex;align-items:center;justify-content:space-between;padding:10px 4px;cursor:pointer;user-select:none}
+.history-month-label{font-size:13px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:0.04em}
+.history-month-count{font-size:10px;font-weight:700;color:var(--text-dim);background:var(--surface2);padding:2px 7px;border-radius:10px}
+.history-month-total{font-size:13px;font-weight:700;color:var(--accent2)}
+.history-month-header svg{color:var(--text-muted)}
+.history-month-items{padding-top:4px}
+.history-item{background:var(--surface);border:1px solid var(--border);border-radius:var(--rad-sm);padding:14px;margin-bottom:8px;cursor:pointer;transition:border-color .15s}
+.history-item:hover{border-color:var(--accent)}
+.hi-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px}
+.hi-name{font-size:14px;font-weight:600;color:var(--text)}
+.hi-amount{font-size:15px;font-weight:700;color:var(--accent2)}
+.hi-meta{font-size:11px;color:var(--text-muted)}
+
+@media(max-width:380px){
+  .action-grid{grid-template-columns:repeat(3,1fr)}
+  .action-grid-4{grid-template-columns:repeat(2,1fr)}
+  .act-btn{font-size:10px}
+}
+
+/* ===== AUTH / ADMIN SCREENS ===== */
+.auth-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--bg)}
+.auth-card{width:100%;max-width:380px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:28px 24px}
+.auth-logo{display:flex;align-items:center;justify-content:center;gap:9px;margin-bottom:22px}
+.auth-logo .logo-icon{width:38px;height:38px}
+.auth-logo .logo-text{font-size:20px}
+.auth-title{font-size:19px;font-weight:800;color:var(--text);text-align:center;margin-bottom:6px}
+.auth-sub{font-size:13px;color:var(--text-muted);text-align:center;margin-bottom:22px;line-height:1.5}
+.auth-toggle{display:flex;background:var(--surface2);border-radius:var(--rad-sm);padding:3px;margin-bottom:18px}
+.auth-toggle button{flex:1;padding:9px;border:none;background:none;border-radius:7px;font-size:12px;font-weight:700;color:var(--text-muted);cursor:pointer;font-family:inherit;transition:all .15s}
+.auth-toggle button.active{background:var(--accent);color:#fff}
+.auth-field-tabs{display:flex;gap:6px;margin-bottom:12px}
+.auth-field-tab{flex:1;padding:8px;text-align:center;font-size:11px;font-weight:600;border:1px solid var(--border-strong);border-radius:7px;background:var(--surface2);color:var(--text-muted);cursor:pointer;transition:all .15s}
+.auth-field-tab.active{border-color:var(--accent);color:var(--accent2);background:rgba(124,92,252,.08)}
+.auth-btn{width:100%;height:48px;background:var(--accent);border:none;border-radius:var(--rad-sm);color:#fff;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;margin-top:6px;transition:background .15s}
+.auth-btn:hover{background:#6b4de6}
+.auth-btn.secondary{background:var(--surface2);color:var(--text);border:1px solid var(--border-strong)}
+.auth-error{font-size:12px;color:#ef4444;text-align:center;margin-top:10px;display:none}
+.auth-error.show{display:block}
+.auth-foot{text-align:center;margin-top:16px;font-size:12px;color:var(--text-dim)}
+.auth-foot a{color:var(--accent2);cursor:pointer;text-decoration:underline}
+.auth-user-badge{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rad-sm);padding:10px 12px;margin-bottom:12px}
+.auth-user-badge .who{font-size:12px;color:var(--text-muted)}
+.auth-user-badge .who b{color:var(--text)}
+.logout-link{font-size:11px;color:#ef4444;cursor:pointer;font-weight:600}
+
+/* ADMIN PANEL */
+.admin-wrap{min-height:100vh;background:var(--bg);padding:0 0 40px}
+.admin-header{position:sticky;top:0;z-index:30;background:var(--bg);border-bottom:1px solid var(--border);padding:14px 18px;display:flex;align-items:center;justify-content:space-between}
+.admin-header .logo-text{font-size:16px}
+.admin-badge{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;background:rgba(124,92,252,.15);color:var(--accent2);padding:4px 9px;border-radius:20px;border:1px solid rgba(124,92,252,.25)}
+.admin-body{max-width:560px;margin:0 auto;padding:18px}
+.admin-stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px}
+.admin-stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
+.admin-stat-card .num{font-size:26px;font-weight:800;color:var(--accent2)}
+.admin-stat-card .lbl{font-size:11px;color:var(--text-muted);margin-top:2px;text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+.admin-section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:14px}
+.admin-section h3{font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px;display:flex;align-items:center;justify-content:space-between}
+.code-row{display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px}
+.code-row .code-txt{font-family:'Courier New',monospace;font-weight:700;font-size:13px;color:var(--accent2);letter-spacing:.04em}
+.code-row .code-meta{font-size:10px;color:var(--text-dim)}
+.code-row .code-status{font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px}
+.code-row .code-status.unused{background:rgba(34,197,94,.15);color:#22c55e}
+.code-row .code-status.used{background:rgba(239,68,68,.15);color:#ef4444}
+.code-row button{border:none;background:rgba(239,68,68,.12);color:#ef4444;border-radius:6px;font-size:11px;font-weight:600;padding:5px 9px;cursor:pointer}
+.user-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)}
+.user-row:last-child{border-bottom:none}
+.user-row .uid{font-size:13px;font-weight:600;color:var(--text)}
+.user-row .umeta{font-size:11px;color:var(--text-dim);margin-top:2px}
+.user-row .upill{font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;white-space:nowrap}
+.user-row .upill.pro{background:rgba(34,197,94,.15);color:#22c55e}
+.user-row .upill.free{background:rgba(148,144,176,.15);color:var(--text-muted)}
+.user-row .uright{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0}
+.trial-btn{border:none;background:rgba(124,92,252,.15);color:var(--accent2);border-radius:6px;font-size:10px;font-weight:700;padding:5px 9px;cursor:pointer;white-space:nowrap}
+.trial-btn:disabled{background:rgba(148,144,176,.12);color:var(--text-dim);cursor:not-allowed}
+.trial-btn.revoke{background:rgba(239,68,68,.12);color:#ef4444}
+.trial-note{font-size:9px;color:var(--text-dim);font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+.admin-empty{font-size:12px;color:var(--text-dim);text-align:center;padding:14px 0}
+.admin-search{width:100%;padding:10px 12px;background:var(--surface2);border:1px solid var(--border-strong);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;margin-bottom:12px}
+.admin-search:focus{outline:none;border-color:var(--accent)}
+.admin-back{font-size:12px;color:var(--text-muted);cursor:pointer;display:flex;align-items:center;gap:4px}
+.gen-code-result{display:flex;align-items:center;gap:8px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:8px;padding:10px 12px;margin-top:10px}
+.gen-code-result .code-big{font-family:'Courier New',monospace;font-weight:800;font-size:16px;color:#22c55e;letter-spacing:.06em;flex:1}
+.gen-code-result button{border:none;background:#22c55e;color:#fff;border-radius:6px;font-size:11px;font-weight:700;padding:6px 10px;cursor:pointer}
+</style>
+</head>
+<body>
+
+<!-- ===== AUTH SCREEN (Login / Signup) ===== -->
+<div class="auth-screen" id="auth-screen" style="display:none">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <div class="logo-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
+      <div class="logo-text">Receipt<span>ly</span></div>
+    </div>
+    <div class="auth-title" id="auth-title">Welcome back</div>
+    <div class="auth-sub" id="auth-sub">Log in to start creating receipts</div>
+
+    <div class="auth-toggle">
+      <button class="active" id="auth-tab-login" onclick="setAuthMode('login')">Log In</button>
+      <button id="auth-tab-signup" onclick="setAuthMode('signup')">Sign Up</button>
+    </div>
+
+    <div class="auth-field-tabs">
+      <div class="auth-field-tab active" id="auth-method-email" onclick="setAuthMethod('email')">Email</div>
+      <div class="auth-field-tab" id="auth-method-phone" onclick="setAuthMethod('phone')">Phone</div>
+    </div>
+
+    <div class="field" id="auth-name-field" style="display:none">
+      <label>Full Name</label>
+      <input type="text" id="auth-name" placeholder="Your name"/>
+    </div>
+    <div class="field" id="auth-email-field">
+      <label>Email Address</label>
+      <input type="email" id="auth-email" placeholder="you@example.com"/>
+    </div>
+    <div class="field" id="auth-phone-field" style="display:none">
+      <label>Phone Number</label>
+      <input type="tel" id="auth-phone" placeholder="08012345678"/>
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" id="auth-password" placeholder="••••••••"/>
+    </div>
+
+    <button class="auth-btn" id="auth-submit-btn" onclick="submitAuth()">Log In</button>
+    <div class="auth-error" id="auth-error"></div>
+    <div class="auth-foot" id="auth-foot">Don't have an account? <a onclick="setAuthMode('signup')">Sign up</a></div>
+  </div>
+</div>
+
+<!-- ===== ADMIN LOGIN / SETUP SCREEN ===== -->
+<div class="auth-screen" id="admin-auth-screen" style="display:none">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <div class="logo-icon" style="background:#1a1a22"><svg viewBox="0 0 24 24" stroke="#a78bfa"><path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/></svg></div>
+      <div class="logo-text">Admin</div>
+    </div>
+    <div class="auth-title" id="admin-auth-title">Admin Setup</div>
+    <div class="auth-sub" id="admin-auth-sub">No admin account exists yet. Create one now — this is a one-time setup.</div>
+
+    <div class="auth-field-tabs">
+      <div class="auth-field-tab active" id="admin-method-email" onclick="setAdminAuthMethod('email')">Email</div>
+      <div class="auth-field-tab" id="admin-method-phone" onclick="setAdminAuthMethod('phone')">Phone</div>
+    </div>
+
+    <div class="field" id="admin-email-field">
+      <label>Admin Email</label>
+      <input type="email" id="admin-auth-email" placeholder="admin@example.com"/>
+    </div>
+    <div class="field" id="admin-phone-field" style="display:none">
+      <label>Admin Phone</label>
+      <input type="tel" id="admin-auth-phone" placeholder="08012345678"/>
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" id="admin-auth-password" placeholder="••••••••"/>
+    </div>
+    <div class="field" id="admin-confirm-field">
+      <label>Confirm Password</label>
+      <input type="password" id="admin-auth-password2" placeholder="••••••••"/>
+    </div>
+
+    <button class="auth-btn" id="admin-submit-btn" onclick="submitAdminAuth()">Create Admin Account</button>
+    <div class="auth-error" id="admin-auth-error"></div>
+    <div class="auth-foot"><a onclick="exitAdminScreen()">← Back to app</a></div>
+  </div>
+</div>
+
+<!-- ===== ADMIN PANEL ===== -->
+<div class="admin-wrap" id="admin-panel" style="display:none">
+  <div class="admin-header">
+    <div class="admin-back" onclick="exitAdminScreen()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+      <span class="logo-text">Receipt<span style="color:var(--accent2)">ly</span> Admin</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <span class="admin-badge">Admin</span>
+      <span class="logout-link" onclick="adminLogout()">Log out</span>
+    </div>
+  </div>
+  <div class="admin-body">
+
+    <div class="admin-stats">
+      <div class="admin-stat-card">
+        <div class="num" id="stat-total-users">0</div>
+        <div class="lbl">Total Users</div>
+      </div>
+      <div class="admin-stat-card">
+        <div class="num" id="stat-subscribed-users">0</div>
+        <div class="lbl">Subscribed (Pro)</div>
+      </div>
+    </div>
+
+    <div class="admin-section">
+      <h3>Generate Access Code</h3>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Select the plan the member paid for, then generate a code to share with them.</p>
+      <select id="admin-plan-select" style="width:100%;padding:10px 12px;background:var(--surface2);border:1px solid var(--border-strong);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;margin-bottom:10px;appearance:none;-webkit-appearance:none">
+        <option value="30|Starter">Starter — 1 Month (₦500)</option>
+        <option value="90|Standard">Standard — 3 Months (₦1,500)</option>
+        <option value="180|Growth" selected>Growth — 6 Months (₦3,000)</option>
+        <option value="365|Professional">Professional — 1 Year (₦6,000)</option>
+        <option value="730|Enterprise">Enterprise — 2 Years (₦12,000)</option>
+      </select>
+      <button class="auth-btn" style="margin-top:0" onclick="generateAccessCode()">+ Generate Access Code</button>
+      <div id="gen-code-output"></div>
+    </div>
+
+    <div class="admin-section">
+      <h3>Access Codes <span style="font-size:11px;color:var(--text-dim);font-weight:600" id="code-count-lbl">0 total</span></h3>
+      <div id="admin-codes-list"></div>
+    </div>
+
+    <div class="admin-section">
+      <h3>All Users <span style="font-size:11px;color:var(--text-dim);font-weight:600" id="user-count-lbl">0 total</span></h3>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Grant a free Pro trial to any user — limited to 3 trials per user. Active trials can be revoked at any time.</p>
+      <input class="admin-search" id="admin-user-search" placeholder="Search by email or phone…" oninput="renderAdminUsers()"/>
+      <div id="admin-users-list"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ===== MAIN APP (hidden until logged in) ===== -->
+<div id="main-app" style="display:none">
+
+<!-- HEADER -->
+<div class="app-header">
+  <div class="logo">
+    <div class="logo-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
+    <div class="logo-text">Receipt<span>ly</span></div>
+  </div>
+  <div class="header-right">
+    <div class="sub-badge" id="sub-badge">Free · <span id="free-left">1</span> left</div>
+    <div class="mode-btn" onclick="toggleMode()" title="Toggle dark/light mode">
+      <svg viewBox="0 0 24 24" id="mode-icon"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    </div>
+    <div class="mode-btn" onclick="userLogout()" title="Log out">
+      <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+    </div>
+  </div>
+</div>
+
+<!-- TABS -->
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('form')">New Receipt</button>
+  <button class="tab" onclick="switchTab('invoiceform')">New Invoice</button>
+  <button class="tab" onclick="switchTab('preview')">Preview</button>
+  <button class="tab" onclick="switchTab('settings')">Business</button>
+  <button class="tab" onclick="switchTab('history')">History</button>
+</div>
+
+<!-- ===== FORM PAGE ===== -->
+<div class="page active" id="page-form">
+
+  <div id="setup-banner" class="setup-banner" style="display:none">
+    <div class="setup-banner-top">
+      <div class="setup-banner-title">🏢 Business profile: <span id="setup-progress-text">0 of 4</span> done</div>
+      <button class="setup-banner-close" onclick="dismissSetupBanner()" aria-label="Dismiss">×</button>
+    </div>
+    <div class="setup-banner-bar"><div class="setup-banner-fill" id="setup-progress-fill" style="width:0%"></div></div>
+    <span class="setup-banner-link" onclick="goToBusinessSetup()">Finish Setup →</span>
+  </div>
+
+  <div id="free-banner" class="free-banner">
+    <div>
+      <p>🎁 Free trial receipt remaining</p>
+      <p style="font-size:11px;color:var(--text-dim);margin-top:2px">Subscribe to generate unlimited receipts & invoices</p>
+    </div>
+    <div class="free-count" id="free-count-big">1</div>
+  </div>
+
+  <div class="section-title">Business Type</div>
+  <div class="field">
+    <label>Select your business</label>
+    <select id="bizType" onchange="updateServiceOptions()">
+      <option value="general">General Business</option>
+      <option value="photographer">Photography & Cinematography</option>
+      <option value="makeup">Makeup Artist / MUA</option>
+      <option value="hairstylist">Hairstylist / Hair Salon</option>
+      <option value="hair-vendor">Hair Vendor</option>
+      <option value="fashion">Clothing / Boutique / Fashion</option>
+      <option value="fabric">Fabric / Textiles / Metals</option>
+      <option value="skincare">Skincare / Beauty Products</option>
+      <option value="event">Event Planner / Decorator</option>
+      <option value="catering">Catering / Food Business</option>
+      <option value="tailor">Tailor / Seamstress</option>
+      <option value="nails">Nail Technician</option>
+      <option value="electronics">Electronics / Gadgets</option>
+      <option value="construction">Construction / Building</option>
+      <option value="cleaning">Cleaning Services</option>
+      <option value="logistics">Logistics / Delivery / Dispatch</option>
+      <option value="auto">Auto Repair / Mechanic</option>
+      <option value="consulting">Consulting / Freelance Services</option>
+      <option value="tech">Tech / Web / Software Services</option>
+      <option value="education">Tutoring / Education</option>
+      <option value="fitness">Fitness / Gym / Personal Training</option>
+      <option value="furniture">Furniture / Interior Decor</option>
+      <option value="realestate">Real Estate / Property</option>
+      <option value="agriculture">Agriculture / Farm Produce</option>
+      <option value="printing">Printing / Branding / Design</option>
+      <option value="legal">Legal / Notary Services</option>
+      <option value="medical">Health / Medical / Wellness</option>
+      <option value="petcare">Pet Care / Veterinary</option>
+      <option value="other">Other</option>
+    </select>
+  </div>
+
+  <div class="section-title">Client Info</div>
+  <div class="field">
+    <label>Client name</label>
+    <input id="clientName" type="text" placeholder="Full name" autocomplete="off"/>
+  </div>
+  <div class="row2">
+    <div class="field"><label>Phone number</label><input id="phone" type="tel" placeholder="+234 800 000 0000"/></div>
+    <div class="field"><label>Email (optional)</label><input id="email" type="email" placeholder="client@email.com"/></div>
+  </div>
+
+  <div class="section-title">Services / Items</div>
+  <div id="service-type-wrap" class="field">
+    <label>Service / Category</label>
+    <select id="serviceType"><option value="">Select…</option></select>
+  </div>
+
+  <div class="line-hdr">
+    <span>Description / Service</span><span>Unit</span><span id="price-currency-label">Price (₦)</span><span>Qty</span><span></span>
+  </div>
+  <div class="line-items" id="lineItems"></div>
+  <button class="add-line-btn" onclick="addLineItem()">+ Add item / service</button>
+
+  <div style="margin-top:14px;background:var(--surface2);border:1px solid var(--border-strong);border-radius:var(--rad-sm);padding:14px 14px 10px">
+    <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-dim);margin-bottom:8px">💡 Manual Total (optional)</div>
+    <p style="font-size:11px;color:var(--text-muted);margin-bottom:10px;line-height:1.5">Leave amounts blank above and enter the total here — the amount column will be hidden on the receipt.</p>
+    <div class="field" style="margin-bottom:0">
+      <label id="rec-manual-total-label">Total Amount (₦)</label>
+      <input id="rec-manualTotal" type="number" min="0" placeholder="e.g. 50000" inputmode="decimal"/>
+    </div>
+  </div>
+
+  <div class="section-title">Payment</div>
+  <div class="row2">
+    <div class="field">
+      <label>Mode of payment</label>
+      <select id="payment">
+        <option value="">Select…</option>
+        <option>Cash</option>
+        <option>Bank transfer</option>
+        <option>POS / Card</option>
+        <option>Mobile money</option>
+        <option>Opay</option>
+        <option>Palmpay</option>
+        <option>Chipper</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Payment status</label>
+      <select id="payStatus" onchange="togglePartPayment()">
+        <option value="Paid">Paid ✓</option>
+        <option value="Part payment">Part payment</option>
+        <option value="Pending">Pending</option>
+      </select>
+    </div>
+  </div>
+  <div class="field" id="amountPaidField" style="display:none">
+    <label id="amount-paid-currency-label">Amount paid (₦)</label>
+    <input id="amountPaid" type="number" min="0" placeholder="0" inputmode="decimal"/>
+  </div>
+  <div class="field">
+    <label>Note to client (optional)</label>
+    <textarea id="noteToClient" placeholder="e.g. Thank you for your patronage! Delivery in 3 days."></textarea>
+  </div>
+</div>
+
+<!-- ===== INVOICE FORM PAGE ===== -->
+<div class="page" id="page-invoiceform">
+
+  <div class="section-title">Business Type</div>
+  <div class="field">
+    <label>Select your business</label>
+    <select id="inv-bizType" onchange="updateInvoiceServiceOptions()">
+      <option value="general">General Business</option>
+      <option value="photographer">Photography & Cinematography</option>
+      <option value="makeup">Makeup Artist / MUA</option>
+      <option value="hairstylist">Hairstylist / Hair Salon</option>
+      <option value="hair-vendor">Hair Vendor</option>
+      <option value="fashion">Clothing / Boutique / Fashion</option>
+      <option value="fabric">Fabric / Textiles / Metals</option>
+      <option value="skincare">Skincare / Beauty Products</option>
+      <option value="event">Event Planner / Decorator</option>
+      <option value="catering">Catering / Food Business</option>
+      <option value="tailor">Tailor / Seamstress</option>
+      <option value="nails">Nail Technician</option>
+      <option value="electronics">Electronics / Gadgets</option>
+      <option value="construction">Construction / Building</option>
+      <option value="cleaning">Cleaning Services</option>
+      <option value="logistics">Logistics / Delivery / Dispatch</option>
+      <option value="auto">Auto Repair / Mechanic</option>
+      <option value="consulting">Consulting / Freelance Services</option>
+      <option value="tech">Tech / Web / Software Services</option>
+      <option value="education">Tutoring / Education</option>
+      <option value="fitness">Fitness / Gym / Personal Training</option>
+      <option value="furniture">Furniture / Interior Decor</option>
+      <option value="realestate">Real Estate / Property</option>
+      <option value="agriculture">Agriculture / Farm Produce</option>
+      <option value="printing">Printing / Branding / Design</option>
+      <option value="legal">Legal / Notary Services</option>
+      <option value="medical">Health / Medical / Wellness</option>
+      <option value="petcare">Pet Care / Veterinary</option>
+      <option value="other">Other</option>
+    </select>
+  </div>
+
+  <div class="section-title">Invoice Details</div>
+  <div class="row2">
+    <div class="field"><label>Invoice number</label><input id="inv-number" type="text" placeholder="Auto-generated" readonly/></div>
+    <div class="field"><label>Due date</label><input id="inv-duedate" type="date"/></div>
+  </div>
+
+  <div class="section-title">Bill To</div>
+  <div class="field">
+    <label>Client / Company name</label>
+    <input id="inv-clientName" type="text" placeholder="Full name or company" autocomplete="off"/>
+  </div>
+  <div class="row2">
+    <div class="field"><label>Phone number</label><input id="inv-phone" type="tel" placeholder="+234 800 000 0000"/></div>
+    <div class="field"><label>Email (for sending invoice)</label><input id="inv-email" type="email" placeholder="client@email.com"/></div>
+  </div>
+  <div class="field">
+    <label>Client address (optional)</label>
+    <input id="inv-clientAddress" type="text" placeholder="Client's billing address"/>
+  </div>
+
+  <div class="section-title">Services / Items</div>
+  <div id="inv-service-type-wrap" class="field">
+    <label>Service / Category</label>
+    <select id="inv-serviceType"><option value="">Select…</option></select>
+  </div>
+
+  <div class="line-hdr">
+    <span>Description / Service</span><span>Unit</span><span id="inv-price-currency-label">Price (₦)</span><span>Qty</span><span></span>
+  </div>
+  <div class="line-items" id="inv-lineItems"></div>
+  <button class="add-line-btn" onclick="addInvoiceLineItem()">+ Add item / service</button>
+
+  <div style="margin-top:14px;background:var(--surface2);border:1px solid var(--border-strong);border-radius:var(--rad-sm);padding:14px 14px 10px">
+    <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-dim);margin-bottom:8px">💡 Manual Total (optional)</div>
+    <p style="font-size:11px;color:var(--text-muted);margin-bottom:10px;line-height:1.5">Leave amounts blank above and enter the total here — the amount column will be hidden on the invoice.</p>
+    <div class="field" style="margin-bottom:0">
+      <label id="inv-manual-total-label">Total Amount Due (₦)</label>
+      <input id="inv-manualTotal" type="number" min="0" placeholder="e.g. 50000" inputmode="decimal"/>
+    </div>
+  </div>
+
+  <div class="section-title">Package & Schedule (optional)</div>
+  <div style="background:var(--surface2);border:1px solid var(--border-strong);border-radius:var(--rad-sm);padding:14px 14px 10px;margin-bottom:14px">
+    <p style="font-size:11px;color:var(--text-muted);margin-bottom:12px;line-height:1.5">Add a package name and the date / location the work or service will be delivered.</p>
+    <div class="row2">
+      <div class="field"><label>Package / Product name</label><input id="inv-pkg-name" type="text" placeholder="e.g. Wedding Package A"/></div>
+      <div class="field"><label>Quantity</label><input id="inv-pkg-qty" type="number" min="1" placeholder="e.g. 1" inputmode="numeric"/></div>
+    </div>
+    <div class="field">
+      <label>Package description (optional)</label>
+      <textarea id="inv-pkg-desc" placeholder="e.g. Includes 2-hour shoot, edited photos, 1 photobook…" style="min-height:60px"></textarea>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Service / Execution date</label><input id="inv-delivery-date" type="date"/></div>
+      <div class="field"><label>Service location (optional)</label><input id="inv-delivery-addr" type="text" placeholder="e.g. client's home, studio…"/></div>
+    </div>
+    <div class="field"><label>Additional note (optional)</label><input id="inv-tracking-no" type="text" placeholder="e.g. arrive by 8am, 2nd session on Sunday…"/></div>
+    <div class="field" style="display:none"><select id="inv-delivery-method"><option value=""></option></select></div>
+    <div class="field" style="display:none"><input id="inv-delivery-fee" type="number" value="0"/></div>
+  </div>
+
+  <div class="section-title">Payment Status</div>
+  <div class="field">
+    <label>Has this invoice been paid already?</label>
+    <select id="inv-payStatus">
+      <option value="Unpaid">Unpaid — request payment</option>
+      <option value="Paid">Already Paid — mark as PAID</option>
+    </select>
+  </div>
+  <div class="field">
+    <label>Terms & conditions (optional)</label>
+    <textarea id="inv-terms" placeholder="e.g. Payment due within 7 days. Late payments incur a 5% fee."></textarea>
+  </div>
+
+  <div class="section-title">Contract (optional)</div>
+  <div class="field">
+    <label>Attach signed contract or agreement for this invoice</label>
+    <div class="contract-upload" id="contract-upload-area">
+      <input type="file" id="contract-input" accept="application/pdf,image/jpeg,image/png,image/jpg" onchange="handleContractUpload(event)"/>
+      <div id="contract-upload-hint">📎 Tap to upload contract (PDF or JPG, max 1MB)</div>
+      <div id="contract-preview" style="display:none">
+        <div class="contract-file-row">
+          <span id="contract-file-icon">📄</span>
+          <span id="contract-file-name" class="contract-file-name"></span>
+          <button type="button" onclick="event.stopPropagation(); removeContract()" class="contract-remove-btn">×</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== PREVIEW PAGE ===== -->
+<div class="page" id="page-preview">
+  <div class="empty-state" id="empty-state">
+    <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+    <p>Fill in a form and tap<br>"Generate" to preview your receipt or invoice.</p>
+  </div>
+
+  <div id="receipt-output" style="display:none">
+    <div id="receipt-card"></div>
+
+    <div style="height:14px"></div>
+    <div class="action-grid">
+      <button class="act-btn wa" onclick="shareWhatsApp()">
+        <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+        WhatsApp
+      </button>
+      <button class="act-btn fb" onclick="shareFacebook()">
+        <svg viewBox="0 0 24 24"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>
+        Facebook
+      </button>
+      <button class="act-btn ig" onclick="shareInstagram()">
+        <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
+        Instagram
+      </button>
+    </div>
+    <div class="action-grid action-grid-4" style="margin-top:8px">
+      <button class="act-btn img" onclick="saveAsImage()">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        Save Image
+      </button>
+      <button class="act-btn pdf" onclick="saveAsPDF()">
+        <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+        Save PDF
+      </button>
+      <button class="act-btn email" onclick="emailDocument()">
+        <svg viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22 6 12 13 2 6"/></svg>
+        Email
+      </button>
+      <button class="act-btn new" onclick="newDoc()">
+        <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        New
+      </button>
+    </div>
+    <div id="edit-invoice-btn-wrap" style="display:none;margin-top:8px">
+      <button class="act-btn" id="edit-doc-btn" onclick="editCurrentDoc()" style="width:100%;justify-content:center;gap:8px;border-color:rgba(139,92,246,.4);color:#a78bfa">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        <span id="edit-doc-btn-label">Edit Invoice</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SETTINGS PAGE ===== -->
+<div class="page" id="page-settings">
+  <div class="settings-card">
+    <h3>🏢 Business Identity</h3>
+    <div class="field">
+      <label>Business name</label>
+      <input id="set-bizname" type="text" placeholder="Your Business Name" oninput="saveSettings()"/>
+    </div>
+    <div class="field">
+      <label>Tagline / Description</label>
+      <input id="set-tagline" type="text" placeholder="e.g. Professional Photography Studio" oninput="saveSettings()"/>
+    </div>
+    <div class="field">
+      <label>Business address</label>
+      <input id="set-address" type="text" placeholder="e.g. 12 Allen Avenue, Ikeja, Lagos" oninput="saveSettings()"/>
+    </div>
+    <div class="field">
+      <label>Business email</label>
+      <input id="set-bizemail" type="email" placeholder="business@example.com" oninput="saveSettings()"/>
+    </div>
+    <div class="field">
+      <label>Phone / WhatsApp</label>
+      <input id="set-phone" type="tel" placeholder="+234 800 000 0000" oninput="saveSettings()"/>
+    </div>
+    <div class="field">
+      <label>Currency</label>
+      <select id="set-currency" onchange="saveSettings()">
+        <option value="NGN">₦ Nigerian Naira (NGN)</option>
+        <option value="USD">$ US Dollar (USD)</option>
+        <option value="GBP">£ British Pound (GBP)</option>
+        <option value="EUR">€ Euro (EUR)</option>
+        <option value="GHS">₵ Ghanaian Cedi (GHS)</option>
+        <option value="KES">KSh Kenyan Shilling (KES)</option>
+        <option value="ZAR">R South African Rand (ZAR)</option>
+        <option value="XOF">CFA West African Franc (XOF)</option>
+        <option value="CAD">$ Canadian Dollar (CAD)</option>
+        <option value="AUD">$ Australian Dollar (AUD)</option>
+        <option value="INR">₹ Indian Rupee (INR)</option>
+        <option value="AED">د.إ UAE Dirham (AED)</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="settings-card">
+    <h3>🏦 Payment Details <span style="font-size:11px;font-weight:500;color:var(--text-dim)">(shown on invoices)</span></h3>
+    <div class="field">
+      <label>Bank name</label>
+      <input id="set-bankname" type="text" placeholder="e.g. GTBank" oninput="saveSettings()"/>
+    </div>
+    <div class="field">
+      <label>Account name</label>
+      <input id="set-bankacctname" type="text" placeholder="As it appears on your bank account" oninput="saveSettings()"/>
+    </div>
+    <div class="field">
+      <label>Account number</label>
+      <input id="set-bankacctno" type="text" inputmode="numeric" placeholder="0123456789" oninput="saveSettings()"/>
+    </div>
+  </div>
+
+  <div class="settings-card">
+    <h3>🏢 Branding</h3>
+    <div class="field">
+      <label>Business Logo</label>
+      <div class="logo-upload" id="logo-upload-area">
+        <input type="file" id="logo-input" accept="image/*" onchange="handleLogoUpload(event)"/>
+        <img id="logo-preview-img" class="logo-preview" style="display:none" src=""/>
+        <p id="logo-upload-hint">📷 Tap to upload logo</p>
+      </div>
+    </div>
+    <div style="margin-top:8px">
+      <button onclick="clearLogo()" style="font-size:12px;color:var(--red);background:none;border:none;cursor:pointer;padding:4px 0">Remove logo</button>
+    </div>
+  </div>
+
+  <div class="settings-card">
+    <h3>🔤 Font Style</h3>
+    <div class="font-row" id="font-row">
+      <div class="font-chip active" data-font="Inter,-apple-system,sans-serif" onclick="selectFont(this)">Inter</div>
+      <div class="font-chip" data-font="Georgia,serif" onclick="selectFont(this)" style="font-family:Georgia,serif">Georgia</div>
+      <div class="font-chip" data-font="'Courier New',monospace" onclick="selectFont(this)" style="font-family:'Courier New',monospace">Mono</div>
+      <div class="font-chip" data-font="'Trebuchet MS',sans-serif" onclick="selectFont(this)" style="font-family:'Trebuchet MS',sans-serif">Trebuchet</div>
+      <div class="font-chip" data-font="Verdana,sans-serif" onclick="selectFont(this)" style="font-family:Verdana,sans-serif">Verdana</div>
+    </div>
+  </div>
+
+  <div class="settings-card">
+    <h3>🎨 Accent Color</h3>
+    <div class="color-row">
+      <div class="color-swatch"><input type="color" id="accentColor" value="#7c5cfc" oninput="applyAccentColor(this.value)"/></div>
+      <div>
+        <p style="font-size:13px;color:var(--text);font-weight:500">Receipt accent color</p>
+        <p style="font-size:11px;color:var(--text-muted);margin-top:2px">Used for totals, badges, borders</p>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+      <div onclick="applyAccentColor('#7c5cfc');document.getElementById('accentColor').value='#7c5cfc'" style="width:28px;height:28px;background:#7c5cfc;border-radius:50%;cursor:pointer;border:2px solid transparent" title="Purple"></div>
+      <div onclick="applyAccentColor('#d4a84b');document.getElementById('accentColor').value='#d4a84b'" style="width:28px;height:28px;background:#d4a84b;border-radius:50%;cursor:pointer" title="Gold"></div>
+      <div onclick="applyAccentColor('#22c55e');document.getElementById('accentColor').value='#22c55e'" style="width:28px;height:28px;background:#22c55e;border-radius:50%;cursor:pointer" title="Green"></div>
+      <div onclick="applyAccentColor('#ef4444');document.getElementById('accentColor').value='#ef4444'" style="width:28px;height:28px;background:#ef4444;border-radius:50%;cursor:pointer" title="Red"></div>
+      <div onclick="applyAccentColor('#3b82f6');document.getElementById('accentColor').value='#3b82f6'" style="width:28px;height:28px;background:#3b82f6;border-radius:50%;cursor:pointer" title="Blue"></div>
+      <div onclick="applyAccentColor('#f97316');document.getElementById('accentColor').value='#f97316'" style="width:28px;height:28px;background:#f97316;border-radius:50%;cursor:pointer" title="Orange"></div>
+      <div onclick="applyAccentColor('#ec4899');document.getElementById('accentColor').value='#ec4899'" style="width:28px;height:28px;background:#ec4899;border-radius:50%;cursor:pointer" title="Pink"></div>
+      <div onclick="applyAccentColor('#111111');document.getElementById('accentColor').value='#111111'" style="width:28px;height:28px;background:#111;border-radius:50%;cursor:pointer;border:1px solid #555" title="Black"></div>
+    </div>
+  </div>
+
+  <div class="settings-card">
+    <h3>💳 Subscription</h3>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;line-height:1.6">You've used <strong id="used-count" style="color:var(--text)">0</strong> of your 1 free trial receipt. Choose a plan below to unlock unlimited receipts & invoices.</p>
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--rad-sm);padding:12px;margin-bottom:12px;font-size:12px;color:var(--text-muted);line-height:1.8">
+      🏦 <strong style="color:var(--text)">Union Bank</strong><br/>
+      Acc No: <strong style="color:var(--accent2);font-family:'Courier New',monospace">0110100240</strong><br/>
+      Name: <strong style="color:var(--text)">Eno Richard Patrick</strong>
+    </div>
+    <button onclick="showSubscribeModal()" style="width:100%;height:44px;background:var(--accent);border:none;border-radius:var(--rad-sm);color:#fff;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer">View Plans & Subscribe</button>
+    <p style="font-size:11px;color:var(--text-dim);text-align:center;margin-top:8px">Plans from ₦500/mo · Transfer → upload proof → get access</p>
+  </div>
+</div>
+
+<!-- ===== HISTORY PAGE ===== -->
+<div class="page" id="page-history">
+  <div class="empty-state" id="history-empty">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+    <p>No receipts yet.<br>Generate your first receipt to see history here.</p>
+  </div>
+  <div id="history-list"></div>
+</div>
+
+<!-- GENERATE BTN -->
+<button class="generate-btn" id="generate-receipt-btn" onclick="generateReceipt()">
+  <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+  Generate Receipt
+</button>
+<button class="generate-btn" id="generate-invoice-btn" onclick="generateInvoice()" style="display:none">
+  <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+  Generate Invoice
+</button>
+
+<!-- SUBSCRIBE MODAL -->
+<div class="modal-bg" id="sub-modal">
+  <div class="modal" style="max-height:92vh;overflow-y:auto">
+
+    <!-- STEP 1: Plan Selection -->
+    <div id="sub-step1">
+      <div style="font-size:28px;margin-bottom:6px">🚀</div>
+      <h2 style="font-size:19px;margin-bottom:4px">Upgrade to Pro</h2>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Choose a plan. Pay once, get your access code instantly via WhatsApp.</p>
+
+      <!-- Plan Cards -->
+      <div class="plan-grid" id="plan-grid">
+        <div class="plan-card" data-plan="starter" data-days="30" data-amount="500" onclick="selectPlan(this)">
+          <div class="plan-radio"><div class="plan-radio-dot"></div></div>
+          <div class="plan-left">
+            <div class="plan-name">Starter</div>
+            <div class="plan-duration">1 Month Access</div>
+          </div>
+          <div class="plan-right">
+            <div class="plan-price">₦500</div>
+            <div class="plan-per">₦500/mo</div>
+          </div>
+        </div>
+        <div class="plan-card" data-plan="standard" data-days="90" data-amount="1500" onclick="selectPlan(this)">
+          <div class="plan-radio"><div class="plan-radio-dot"></div></div>
+          <div class="plan-left">
+            <div class="plan-name">Standard</div>
+            <div class="plan-duration">3 Months Access</div>
+          </div>
+          <div class="plan-right">
+            <div class="plan-price">₦1,500</div>
+            <div class="plan-per">₦500/mo</div>
+          </div>
+        </div>
+        <div class="plan-card selected" data-plan="growth" data-days="180" data-amount="3000" onclick="selectPlan(this)">
+          <div class="plan-badge">Most Popular</div>
+          <div class="plan-radio"><div class="plan-radio-dot"></div></div>
+          <div class="plan-left">
+            <div class="plan-name">Growth</div>
+            <div class="plan-duration">6 Months Access</div>
+          </div>
+          <div class="plan-right">
+            <div class="plan-price">₦3,000</div>
+            <div class="plan-per">₦500/mo</div>
+          </div>
+        </div>
+        <div class="plan-card" data-plan="professional" data-days="365" data-amount="6000" onclick="selectPlan(this)">
+          <div class="plan-radio"><div class="plan-radio-dot"></div></div>
+          <div class="plan-left">
+            <div class="plan-name">Professional</div>
+            <div class="plan-duration">1 Year Access</div>
+          </div>
+          <div class="plan-right">
+            <div class="plan-price">₦6,000</div>
+            <div class="plan-per">₦500/mo</div>
+          </div>
+        </div>
+        <div class="plan-card" data-plan="enterprise" data-days="730" data-amount="12000" onclick="selectPlan(this)">
+          <div class="plan-badge" style="background:linear-gradient(90deg,#d4a84b,#f0cc7a);color:#3d2e00">Best Value</div>
+          <div class="plan-radio"><div class="plan-radio-dot"></div></div>
+          <div class="plan-left">
+            <div class="plan-name">Enterprise</div>
+            <div class="plan-duration">2 Years Access</div>
+          </div>
+          <div class="plan-right">
+            <div class="plan-price">₦12,000</div>
+            <div class="plan-per">₦500/mo</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- What you get -->
+      <div class="modal-features" style="margin-bottom:14px">
+        <div class="modal-feat"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Unlimited receipts & invoices</div>
+        <div class="modal-feat"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Save as image & PDF</div>
+        <div class="modal-feat"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> WhatsApp, Facebook & Instagram share</div>
+        <div class="modal-feat"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Custom logo, fonts & accent color</div>
+        <div class="modal-feat"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> All 4 templates + full history</div>
+      </div>
+
+      <!-- Bank details -->
+      <div style="background:var(--surface2);border:1px solid var(--border-strong);border-radius:var(--rad-sm);padding:14px;margin-bottom:14px;text-align:left">
+        <div style="font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-dim);margin-bottom:10px">Transfer to this account</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-size:12px;color:var(--text-muted)">Bank</span>
+          <span style="font-size:13px;font-weight:700;color:var(--text)">Union Bank</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-size:12px;color:var(--text-muted)">Name</span>
+          <span style="font-size:13px;font-weight:600;color:var(--text)">Eno Richard Patrick</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <span style="font-size:12px;color:var(--text-muted)">Account No.</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:17px;font-weight:800;color:var(--accent2);font-family:'Courier New',monospace;letter-spacing:0.05em">0110100240</span>
+            <button onclick="copyAcctNo()" style="font-size:10px;font-weight:700;background:var(--accent);border:none;color:#fff;padding:4px 8px;border-radius:4px;cursor:pointer">COPY</button>
+          </div>
+        </div>
+        <div style="border-top:1px solid var(--border);padding-top:10px;display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:12px;color:var(--text-muted)">Amount to pay</span>
+          <span style="font-size:22px;font-weight:800;color:#22c55e" id="selected-amount-display">₦3,000</span>
+        </div>
+      </div>
+
+      <button class="sub-btn" onclick="goToProofStep()">I've Paid — Upload Proof →</button>
+      <div class="sub-cancel" onclick="closeSubModal()">Not now</div>
+    </div>
+
+    <!-- STEP 2: Upload Proof -->
+    <div id="sub-step2" style="display:none">
+      <div style="font-size:30px;margin-bottom:6px">📎</div>
+      <h2 style="font-size:19px;margin-bottom:4px">Upload Proof of Payment</h2>
+      <div id="step2-plan-summary" style="font-size:12px;color:var(--accent2);font-weight:600;background:rgba(124,92,252,0.1);border:1px solid rgba(124,92,252,0.2);border-radius:6px;padding:8px 12px;margin-bottom:12px;text-align:center"></div>
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Screenshot your transfer receipt and upload below. We'll save it to your device and open WhatsApp directly with our support number — just attach the screenshot there. Your access code will be sent via WhatsApp once verified.</p>
+
+      <div id="proof-upload-area" style="border:2px dashed var(--border-strong);border-radius:var(--rad-sm);padding:20px;text-align:center;cursor:pointer;margin-bottom:14px;position:relative;transition:border-color .15s" onclick="document.getElementById('proof-file-input').click()">
+        <input type="file" id="proof-file-input" accept="image/*" style="display:none" onchange="handleProofUpload(event)"/>
+        <div id="proof-placeholder">
+          <div style="font-size:28px;margin-bottom:8px">🖼️</div>
+          <p style="font-size:13px;color:var(--text-muted)">Tap to upload your payment screenshot</p>
+          <p style="font-size:11px;color:var(--text-dim);margin-top:4px">JPG, PNG accepted · Max 5MB</p>
+        </div>
+        <div id="proof-preview-wrap" style="display:none">
+          <img id="proof-preview-img" style="max-width:100%;max-height:160px;border-radius:8px;object-fit:contain"/>
+          <p style="font-size:12px;color:#22c55e;margin-top:8px;font-weight:600">✓ Screenshot selected</p>
+        </div>
+      </div>
+
+      <div class="field" style="margin-bottom:10px">
+        <label>Your name / business name</label>
+        <input id="proof-name" type="text" placeholder="e.g. Adaeze Beauty Studio"/>
+      </div>
+      <div class="field" style="margin-bottom:14px">
+        <label>WhatsApp number (for verification)</label>
+        <input id="proof-phone" type="tel" placeholder="+234 800 000 0000"/>
+      </div>
+
+      <button class="sub-btn" id="submit-proof-btn" onclick="submitProof()">Submit for Verification</button>
+      <div style="margin-top:10px;display:flex;gap:12px;justify-content:center">
+        <span class="sub-cancel" onclick="backToStep1()">← Back</span>
+        <span class="sub-cancel" onclick="closeSubModal()">Cancel</span>
+      </div>
+    </div>
+
+    <!-- STEP 3: Pending / Enter Code -->
+    <div id="sub-step3" style="display:none;text-align:center">
+      <div style="font-size:48px;margin-bottom:12px">⏳</div>
+      <h2 style="font-size:19px;margin-bottom:10px">Verification Pending</h2>
+      <p style="font-size:13px;color:var(--text-muted);line-height:1.7;margin-bottom:16px">Your payment evidence and details have been sent to WhatsApp for verification. Once confirmed, your access code will be sent to you — usually within a few minutes during business hours.</p>
+      <div style="background:var(--surface2);border:1px solid var(--border-strong);border-radius:var(--rad-sm);padding:14px;margin-bottom:16px;font-size:13px;color:var(--text-muted);line-height:1.7">
+        Already received your code? Enter it below:
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:14px">
+        <input id="access-code-input" type="text" placeholder="Enter access code" style="flex:1;padding:12px 14px;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--rad-sm);color:var(--text);font-size:14px;font-family:inherit;text-align:center;letter-spacing:0.12em;text-transform:uppercase"/>
+        <button onclick="verifyAccessCode()" style="padding:12px 16px;background:var(--accent);border:none;border-radius:var(--rad-sm);color:#fff;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;white-space:nowrap">Verify</button>
+      </div>
+      <div class="sub-cancel" onclick="closeSubModal()">Close</div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ===== WELCOME / ONBOARDING MODAL (shown once, right after signup) ===== -->
+<div class="modal-bg" id="welcome-modal">
+  <div class="modal">
+    <div style="font-size:40px;margin-bottom:8px">👋</div>
+    <h2 style="font-size:19px;margin-bottom:6px" id="welcome-title">Welcome to Receiptly!</h2>
+    <p style="font-size:13px;color:var(--text-muted);line-height:1.6;margin-bottom:14px">Let's get your business set up so your receipts and invoices look professional from the very first one.</p>
+    <div class="modal-features" style="margin-bottom:16px">
+      <div class="modal-feat"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Add your business name &amp; address</div>
+      <div class="modal-feat"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Add your bank details for payments</div>
+      <div class="modal-feat"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Upload your logo &amp; pick a template</div>
+    </div>
+    <button class="auth-btn" onclick="goToBusinessSetup()">Set Up My Business →</button>
+    <div style="margin-top:10px">
+      <span class="sub-cancel" onclick="skipBusinessSetup()">Skip for now</span>
+    </div>
+  </div>
+</div>
+
+<!-- SPINNER -->
+<div class="spinner-ov" id="spinner">
+  <div class="spinner"></div>
+  <div class="spinner-lbl" id="spinner-lbl">Processing…</div>
+</div>
+
+<!-- CUSTOMER CARE -->
+<button class="care-btn" onclick="openCustomerCare()" title="Chat with customer care" aria-label="Customer care">
+  <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12c0 1.85.5 3.58 1.38 5.07L2 22l5.07-1.33A9.96 9.96 0 0 0 12 22c5.52 0 10-4.48 10-10S17.52 2 12 2zm0 18c-1.55 0-3-.42-4.24-1.15l-.3-.18-3.13.82.84-3.05-.2-.32A7.94 7.94 0 0 1 4 12c0-4.41 3.59-8 8-8s8 3.59 8 8-3.59 8-8 8zm4.36-5.98c-.24-.12-1.42-.7-1.64-.78-.22-.08-.38-.12-.54.12-.16.24-.62.78-.76.94-.14.16-.28.18-.52.06-.7-.28-1.46-.69-2.1-1.32-.6-.6-1.04-1.34-1.32-1.93-.1-.22-.02-.34.1-.46.1-.1.22-.26.34-.4.12-.14.16-.24.24-.4.08-.16.04-.3-.02-.42-.06-.12-.56-1.36-.78-1.86-.18-.42-.36-.36-.5-.36-.14 0-.32 0-.5.02-.18.02-.46.08-.7.34-.24.26-.92.9-.92 2.18s.94 2.52 1.08 2.68c.14.16 1.86 2.84 4.5 3.87 2.64 1.03 2.64.69 3.12.64.48-.04 1.42-.58 1.62-1.14.2-.56.2-1.04.14-1.14-.06-.1-.24-.16-.5-.28z"/></svg>
+</button>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+</div><!-- /#main-app -->
+
+<script>
+// =====================================================================
+// AUTH & ADMIN MODULE (Firebase Firestore backend)
+// Uses window.fb (set up by the Firebase module script in <head>) as the
+// platform's shared database — user accounts, access codes, and counts
+// are stored in Firestore and visible across all devices/browsers, on
+// any domain this file is hosted on.
+//
+// Firestore collections used:
+//   users    : { id, name, method, email, phone, passwordHash, subscribed, createdAt }
+//   admins   : { id, method, email, phone, passwordHash, createdAt }
+//   codes    : { code, used, createdAt, usedBy, usedAt }
+//   lookups  : { targetType: 'user'|'admin', targetId } — keyed by
+//              "<method>:<identifier>", e.g. "email:jane@x.com"
+// =====================================================================
+
+let currentUser = null;     // logged-in regular user record
+let currentAdmin = null;    // logged-in admin record
+let authMode = 'login';     // 'login' | 'signup'
+let authMethod = 'email';   // 'email' | 'phone'
+let adminAuthMethod = 'email';
+let adminExists = false;
+let fbReady = false;
+
+// EmailJS setup — sends receipts/invoices directly to client emails
+const EMAILJS_SERVICE_ID = 'service_73z15e1';
+const EMAILJS_TEMPLATE_ID = 'template_rvsxyg4';
+const EMAILJS_PUBLIC_KEY = 'bbU7dvHuq6pVQxmly';
+if (typeof emailjs !== 'undefined') {
+  emailjs.init({ publicKey: EMAILJS_PUBLIC_KEY });
+}
+
+window.addEventListener('firebase-ready', () => { fbReady = true; });
+
+// --- simple password hashing (SHA-256 via Web Crypto) ---
+async function hashPassword(pw) {
+  const enc = new TextEncoder().encode(pw);
+  const buf = await crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+function normIdentifier(v) { return v.trim().toLowerCase(); }
+
+// Returns true only if the user record is marked subscribed AND the
+// 30-day window from their last redeemed code hasn't passed yet.
+function isSubscriptionActive(userRecord) {
+  if (!userRecord || !userRecord.subscribed) return false;
+  if (!userRecord.subscriptionExpiresAt) return false; // legacy/no-expiry record treated as expired
+  return Date.now() < userRecord.subscriptionExpiresAt;
+}
+
+function daysRemaining(userRecord) {
+  if (!userRecord || !userRecord.subscriptionExpiresAt) return 0;
+  const ms = userRecord.subscriptionExpiresAt - Date.now();
+  return Math.max(0, Math.ceil(ms / (24 * 60 * 60 * 1000)));
+}
+
+// Pulls saved business info (name, logo, bank details, etc.) from the
+// user's Firestore record into the global `settings` object, so it
+// follows them across devices instead of being stuck on one browser.
+// IMPORTANT: this fully replaces `settings` rather than merging, so a
+// previous user's leftover business info on a shared device never
+// bleeds into the next account that logs in.
+function hydrateSettingsFromUser(userRecord) {
+  settings = (userRecord && userRecord.businessInfo) ? { ...userRecord.businessInfo } : {};
+  localStorage.setItem('rly_settings', JSON.stringify(settings));
+}
+
+
+
+function lookupKey(method, identifier) { return method + ':' + identifier; }
+
+async function waitForFirebase(timeoutMs = 8000) {
+  if (fbReady && window.fb) return true;
+  return new Promise(resolve => {
+    const onReady = () => { fbReady = true; clearTimeout(t); resolve(true); };
+    window.addEventListener('firebase-ready', onReady, { once: true });
+    const t = setTimeout(() => {
+      window.removeEventListener('firebase-ready', onReady);
+      resolve(!!window.fb);
+    }, timeoutMs);
+  });
+}
+
+// --- BOOT SEQUENCE ---
+async function boot() {
+  try {
+    const ok = await waitForFirebase();
+    if (!ok || typeof window.fb === 'undefined') {
+      console.error('Firebase did not initialize in time.');
+      showUserAuthScreen();
+      showAuthError('Could not connect to the server. Check your internet connection and reload.');
+      return;
+    }
+
+    // Restore session from localStorage (per-device session pointer)
+    const savedUserId = localStorage.getItem('rly_user_id');
+    const savedAdminId = localStorage.getItem('rly_admin_id');
+
+    // Check if any admin account exists yet
+    try {
+      const admins = await window.fb.listAll('admins');
+      adminExists = admins.length > 0;
+    } catch (e) { console.error('Admin existence check failed:', e); adminExists = false; }
+
+    if (location.hash === '#admin') {
+      if (savedAdminId) {
+        try {
+          const rec = await window.fb.get('admins', savedAdminId);
+          if (rec) { currentAdmin = rec; showAdminPanel(); return; }
+        } catch(e) { console.error(e); }
+      }
+      showAdminAuthScreen();
+      return;
+    }
+
+    if (savedUserId) {
+      try {
+        const rec = await window.fb.get('users', savedUserId);
+        if (rec) {
+          // If their Pro period has lapsed since they last logged in, downgrade now
+          if (rec.subscribed && !isSubscriptionActive(rec)) {
+            rec.subscribed = false;
+            try { await window.fb.set('users', rec.id, rec); } catch (e) { console.error('Could not persist expiry downgrade:', e); }
+          }
+          currentUser = rec;
+          hydrateSettingsFromUser(rec);
+          isSubscribed = isSubscriptionActive(rec);
+          localStorage.setItem('rly_sub', isSubscribed ? '1' : '0');
+          localStorage.setItem('rly_sub_expires', String(rec.subscriptionExpiresAt || ''));
+          enterMainApp();
+          return;
+        }
+      } catch (e) { console.error(e); }
+    }
+    showUserAuthScreen();
+  } catch (err) {
+    console.error('Boot error:', err);
+    // No matter what fails, never leave the user stuck on a blank screen
+    showUserAuthScreen();
+    showAuthError('Something went wrong loading the app: ' + (err && err.message ? err.message : String(err)));
+  }
+}
+
+window.addEventListener('hashchange', () => {
+  if (location.hash === '#admin') {
+    document.getElementById('main-app').style.display = 'none';
+    document.getElementById('auth-screen').style.display = 'none';
+    boot();
+  } else if (currentUser) {
+    document.getElementById('admin-panel').style.display = 'none';
+    document.getElementById('admin-auth-screen').style.display = 'none';
+    enterMainApp();
+  }
+});
+
+// --- SCREEN SWITCHING ---
+function showUserAuthScreen() {
+  document.getElementById('main-app').style.display = 'none';
+  document.getElementById('admin-panel').style.display = 'none';
+  document.getElementById('admin-auth-screen').style.display = 'none';
+  document.getElementById('auth-screen').style.display = 'flex';
+}
+
+function enterMainApp() {
+  document.getElementById('auth-screen').style.display = 'none';
+  document.getElementById('admin-panel').style.display = 'none';
+  document.getElementById('admin-auth-screen').style.display = 'none';
+  document.getElementById('main-app').style.display = 'block';
+  init(); // run the original app init now that we're logged in
+}
+
+// ===== ONBOARDING: WELCOME MODAL =====
+// Shown once, right after a brand-new account signs up, to point them at
+// Settings (business name, address, bank details, logo, template) before
+// they create their first receipt or invoice.
+function showWelcomeModal(name) {
+  document.getElementById('welcome-title').textContent = name ? `Welcome to Receiptly, ${name}!` : 'Welcome to Receiptly!';
+  document.getElementById('welcome-modal').classList.add('show');
+}
+function closeWelcomeModal() {
+  document.getElementById('welcome-modal').classList.remove('show');
+}
+function goToBusinessSetup() {
+  closeWelcomeModal();
+  switchTab('settings');
+  showToast('🏢 Fill in your business details below');
+}
+function skipBusinessSetup() {
+  closeWelcomeModal();
+  showToast('You can finish this anytime in the Settings tab');
+}
+
+function showAdminAuthScreen() {
+  document.getElementById('main-app').style.display = 'none';
+  document.getElementById('auth-screen').style.display = 'none';
+  document.getElementById('admin-panel').style.display = 'none';
+  document.getElementById('admin-auth-screen').style.display = 'flex';
+
+  if (adminExists) {
+    document.getElementById('admin-auth-title').textContent = 'Admin Login';
+    document.getElementById('admin-auth-sub').textContent = 'Log in to manage Receiptly.';
+    document.getElementById('admin-confirm-field').style.display = 'none';
+    document.getElementById('admin-submit-btn').textContent = 'Log In';
+  } else {
+    document.getElementById('admin-auth-title').textContent = 'Admin Setup';
+    document.getElementById('admin-auth-sub').textContent = 'No admin account exists yet. Create one now — this is a one-time setup.';
+    document.getElementById('admin-confirm-field').style.display = 'block';
+    document.getElementById('admin-submit-btn').textContent = 'Create Admin Account';
+  }
+}
+
+async function showAdminPanel() {
+  document.getElementById('main-app').style.display = 'none';
+  document.getElementById('auth-screen').style.display = 'none';
+  document.getElementById('admin-auth-screen').style.display = 'none';
+  document.getElementById('admin-panel').style.display = 'block';
+  await renderAdminStats();
+  await renderAdminCodes();
+  await renderAdminUsers();
+}
+
+function exitAdminScreen() {
+  location.hash = '';
+  document.getElementById('admin-panel').style.display = 'none';
+  document.getElementById('admin-auth-screen').style.display = 'none';
+  if (currentUser) enterMainApp(); else showUserAuthScreen();
+}
+
+// --- USER AUTH UI ---
+function setAuthMode(mode) {
+  authMode = mode;
+  document.getElementById('auth-tab-login').classList.toggle('active', mode === 'login');
+  document.getElementById('auth-tab-signup').classList.toggle('active', mode === 'signup');
+  document.getElementById('auth-name-field').style.display = mode === 'signup' ? 'block' : 'none';
+  document.getElementById('auth-title').textContent = mode === 'signup' ? 'Create your account' : 'Welcome back';
+  document.getElementById('auth-sub').textContent = mode === 'signup' ? 'Sign up to start creating receipts' : 'Log in to start creating receipts';
+  document.getElementById('auth-submit-btn').textContent = mode === 'signup' ? 'Sign Up' : 'Log In';
+  document.getElementById('auth-foot').innerHTML = mode === 'signup'
+    ? `Already have an account? <a onclick="setAuthMode('login')">Log in</a>`
+    : `Don't have an account? <a onclick="setAuthMode('signup')">Sign up</a>`;
+  hideAuthError();
+}
+
+function setAuthMethod(method) {
+  authMethod = method;
+  document.getElementById('auth-method-email').classList.toggle('active', method === 'email');
+  document.getElementById('auth-method-phone').classList.toggle('active', method === 'phone');
+  document.getElementById('auth-email-field').style.display = method === 'email' ? 'block' : 'none';
+  document.getElementById('auth-phone-field').style.display = method === 'phone' ? 'block' : 'none';
+}
+
+function showAuthError(msg) {
+  const el = document.getElementById('auth-error');
+  el.textContent = msg;
+  el.classList.add('show');
+}
+function hideAuthError() { document.getElementById('auth-error').classList.remove('show'); }
+
+async function submitAuth() {
+  hideAuthError();
+  const identifier = authMethod === 'email'
+    ? normIdentifier(document.getElementById('auth-email').value)
+    : normIdentifier(document.getElementById('auth-phone').value.replace(/\s+/g,''));
+  const password = document.getElementById('auth-password').value;
+  const name = document.getElementById('auth-name') ? document.getElementById('auth-name').value.trim() : '';
+
+  if (!identifier) { showAuthError(`Please enter your ${authMethod}`); return; }
+  if (!password || password.length < 4) { showAuthError('Password must be at least 4 characters'); return; }
+  if (authMode === 'signup' && !name) { showAuthError('Please enter your name'); return; }
+
+  const submitBtn = document.getElementById('auth-submit-btn');
+  const originalBtnText = submitBtn.textContent;
+  submitBtn.textContent = 'Please wait…';
+  submitBtn.disabled = true;
+
+  try {
+    if (typeof window.fb === 'undefined') {
+      showAuthError('Not connected to the server. Please reload and try again.');
+      return;
+    }
+
+    const lKey = lookupKey(authMethod, identifier);
+
+    if (authMode === 'signup') {
+      let existingLookup = null;
+      try { existingLookup = await window.fb.get('lookups', lKey); } catch (e) { existingLookup = null; }
+      if (existingLookup) { showAuthError('An account already exists with this ' + authMethod + '. Try logging in.'); return; }
+
+      const passwordHash = await hashPassword(password);
+      const userId = authMethod + '_' + identifier.replace(/[^a-z0-9]/gi,'') + '_' + Date.now();
+      const userRecord = {
+        id: userId,
+        name,
+        method: authMethod,
+        email: authMethod === 'email' ? identifier : '',
+        phone: authMethod === 'phone' ? identifier : '',
+        passwordHash,
+        subscribed: false,
+        createdAt: Date.now()
+      };
+
+      await window.fb.set('users', userId, userRecord);
+      await window.fb.set('lookups', lKey, { targetType: 'user', targetId: userId });
+
+      currentUser = userRecord;
+      localStorage.setItem('rly_user_id', userId);
+      // fresh device-local state for the new account
+      isSubscribed = false;
+      freeCount = 3;
+      localStorage.setItem('rly_sub', '0');
+      localStorage.setItem('rly_free', '3');
+      enterMainApp();
+      showToast('🎉 Welcome to Receiptly, ' + name + '!');
+      showWelcomeModal(name);
+    } else {
+      let lookup = null;
+      try { lookup = await window.fb.get('lookups', lKey); } catch (e) { lookup = null; }
+      if (!lookup) { showAuthError('No account found with this ' + authMethod + '. Try signing up.'); return; }
+
+      const userRecord = await window.fb.get('users', lookup.targetId);
+      if (!userRecord) { showAuthError('Account record not found. Please try signing up again.'); return; }
+
+      const passwordHash = await hashPassword(password);
+      if (passwordHash !== userRecord.passwordHash) { showAuthError('Incorrect password'); return; }
+
+      // If their Pro period has lapsed, downgrade them back to free now
+      if (userRecord.subscribed && !isSubscriptionActive(userRecord)) {
+        userRecord.subscribed = false;
+        try { await window.fb.set('users', userRecord.id, userRecord); } catch (e) { console.error('Could not persist expiry downgrade:', e); }
+      }
+
+      currentUser = userRecord;
+      hydrateSettingsFromUser(userRecord);
+      localStorage.setItem('rly_user_id', userRecord.id);
+      isSubscribed = isSubscriptionActive(userRecord);
+      localStorage.setItem('rly_sub', isSubscribed ? '1' : '0');
+      localStorage.setItem('rly_sub_expires', String(userRecord.subscriptionExpiresAt || ''));
+      enterMainApp();
+      showToast('👋 Welcome back, ' + (userRecord.name || 'there') + '!');
+    }
+  } catch (err) {
+    console.error('Auth error:', err);
+    showAuthError('Error: ' + (err && err.message ? err.message : String(err)));
+  } finally {
+    submitBtn.textContent = originalBtnText;
+    submitBtn.disabled = false;
+  }
+}
+
+function userLogout() {
+  localStorage.removeItem('rly_user_id');
+  currentUser = null;
+  location.hash = '';
+  showUserAuthScreen();
+}
+
+// --- ADMIN AUTH UI ---
+function setAdminAuthMethod(method) {
+  adminAuthMethod = method;
+  document.getElementById('admin-method-email').classList.toggle('active', method === 'email');
+  document.getElementById('admin-method-phone').classList.toggle('active', method === 'phone');
+  document.getElementById('admin-email-field').style.display = method === 'email' ? 'block' : 'none';
+  document.getElementById('admin-phone-field').style.display = method === 'phone' ? 'block' : 'none';
+}
+
+function showAdminAuthError(msg) {
+  const el = document.getElementById('admin-auth-error');
+  el.textContent = msg;
+  el.classList.add('show');
+}
+
+async function submitAdminAuth() {
+  document.getElementById('admin-auth-error').classList.remove('show');
+  const identifier = adminAuthMethod === 'email'
+    ? normIdentifier(document.getElementById('admin-auth-email').value)
+    : normIdentifier(document.getElementById('admin-auth-phone').value.replace(/\s+/g,''));
+  const password = document.getElementById('admin-auth-password').value;
+
+  if (!identifier) { showAdminAuthError('Please enter admin ' + adminAuthMethod); return; }
+  if (!password || password.length < 6) { showAdminAuthError('Password must be at least 6 characters'); return; }
+
+  const submitBtn = document.getElementById('admin-submit-btn');
+  const originalBtnText = submitBtn.textContent;
+  submitBtn.textContent = 'Please wait…';
+  submitBtn.disabled = true;
+
+  try {
+    if (typeof window.fb === 'undefined') {
+      showAdminAuthError('Not connected to the server. Please reload and try again.');
+      return;
+    }
+
+    const lKey = lookupKey(adminAuthMethod, identifier);
+
+    if (!adminExists) {
+      // One-time admin creation
+      const confirmPw = document.getElementById('admin-auth-password2').value;
+      if (password !== confirmPw) { showAdminAuthError('Passwords do not match'); return; }
+
+      const passwordHash = await hashPassword(password);
+      const adminId = 'admin_' + Date.now();
+      const adminRecord = {
+        id: adminId,
+        method: adminAuthMethod,
+        email: adminAuthMethod === 'email' ? identifier : '',
+        phone: adminAuthMethod === 'phone' ? identifier : '',
+        passwordHash,
+        createdAt: Date.now()
+      };
+
+      await window.fb.set('admins', adminId, adminRecord);
+      await window.fb.set('lookups', lKey, { targetType: 'admin', targetId: adminId });
+
+      currentAdmin = adminRecord;
+      adminExists = true;
+      localStorage.setItem('rly_admin_id', adminId);
+      showToast('✓ Admin account created');
+      showAdminPanel();
+    } else {
+      const lookup = await window.fb.get('lookups', lKey);
+      if (!lookup) { showAdminAuthError('No admin account found with this ' + adminAuthMethod); return; }
+
+      const adminRecord = await window.fb.get('admins', lookup.targetId);
+      if (!adminRecord) { showAdminAuthError('Admin record not found. The account may be corrupted.'); return; }
+
+      const passwordHash = await hashPassword(password);
+      if (passwordHash !== adminRecord.passwordHash) { showAdminAuthError('Incorrect password'); return; }
+
+      currentAdmin = adminRecord;
+      localStorage.setItem('rly_admin_id', adminRecord.id);
+      showToast('👋 Welcome back, admin');
+      showAdminPanel();
+    }
+  } catch (err) {
+    console.error('Admin auth error:', err);
+    showAdminAuthError('Error: ' + (err && err.message ? err.message : String(err)));
+  } finally {
+    submitBtn.textContent = originalBtnText;
+    submitBtn.disabled = false;
+  }
+}
+
+function adminLogout() {
+  localStorage.removeItem('rly_admin_id');
+  currentAdmin = null;
+  location.hash = '';
+  if (currentUser) { enterMainApp(); } else { showUserAuthScreen(); }
+}
+
+// --- ADMIN: STATS, USERS, CODES ---
+async function getAllUsers() {
+  try {
+    const users = await window.fb.listAll('users');
+    return users.sort((a,b) => b.createdAt - a.createdAt);
+  } catch (e) { console.error('getAllUsers failed:', e); return []; }
+}
+
+async function getAllCodes() {
+  try {
+    const codes = await window.fb.listAll('codes');
+    return codes.sort((a,b) => b.createdAt - a.createdAt);
+  } catch (e) { console.error('getAllCodes failed:', e); return []; }
+}
+
+async function renderAdminStats() {
+  const users = await getAllUsers();
+  document.getElementById('stat-total-users').textContent = users.length;
+  document.getElementById('stat-subscribed-users').textContent = users.filter(u => isSubscriptionActive(u)).length;
+}
+
+function generateCodeString() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let s = '';
+  for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return 'RLY-' + s;
+}
+
+async function generateAccessCode() {
+  const selectEl = document.getElementById('admin-plan-select');
+  const [days, planName] = (selectEl ? selectEl.value : '30|Starter').split('|');
+  const durationDays = parseInt(days);
+  const code = generateCodeString();
+  const record = { code, used: false, createdAt: Date.now(), usedBy: null, usedAt: null, durationDays, planName };
+  try {
+    await window.fb.set('codes', code, record);
+    document.getElementById('gen-code-output').innerHTML = `
+      <div class="gen-code-result">
+        <div>
+          <div class="code-big">${code}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${planName} · ${durationDays} days</div>
+        </div>
+        <button onclick="copyCode('${code}')">Copy</button>
+      </div>`;
+    showToast('✓ Code generated — ' + planName);
+    await renderAdminCodes();
+  } catch (err) {
+    console.error(err);
+    showToast('⚠️ Could not generate code: ' + (err && err.message ? err.message : String(err)));
+  }
+}
+
+function copyCode(code) {
+  navigator.clipboard.writeText(code).then(() => showToast('✓ Copied: ' + code))
+    .catch(() => showToast('Code: ' + code));
+}
+
+async function renderAdminCodes() {
+  const codes = await getAllCodes();
+  document.getElementById('code-count-lbl').textContent = codes.length + ' total';
+  const list = document.getElementById('admin-codes-list');
+  if (codes.length === 0) {
+    list.innerHTML = '<div class="admin-empty">No access codes yet. Generate one above.</div>';
+    return;
+  }
+  list.innerHTML = codes.map(c => `
+    <div class="code-row">
+      <div>
+        <div class="code-txt">${c.code}</div>
+        <div class="code-meta">${c.planName || '30-day'} · ${new Date(c.createdAt).toLocaleDateString('en-GB')}${c.used ? ' · redeemed' : ''}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="code-status ${c.used ? 'used' : 'unused'}">${c.used ? 'Used' : 'Active'}</span>
+        ${!c.used ? `<button onclick="revokeCode('${c.code}')">Revoke</button>` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+async function revokeCode(code) {
+  try {
+    await window.fb.delete('codes', code);
+    showToast('✓ Code revoked');
+    await renderAdminCodes();
+  } catch (err) {
+    showToast('⚠️ Could not revoke code');
+  }
+}
+
+// Max number of free trials an admin can grant to any single user.
+const MAX_FREE_TRIALS = 3;
+// Length of each granted free trial, in days.
+const FREE_TRIAL_DAYS = 7;
+
+async function renderAdminUsers() {
+  const search = (document.getElementById('admin-user-search')?.value || '').trim().toLowerCase();
+  const users = await getAllUsers();
+  document.getElementById('user-count-lbl').textContent = users.length + ' total';
+  document.getElementById('stat-total-users').textContent = users.length;
+  document.getElementById('stat-subscribed-users').textContent = users.filter(u => isSubscriptionActive(u)).length;
+
+  const filtered = search
+    ? users.filter(u => (u.email||'').includes(search) || (u.phone||'').includes(search) || (u.name||'').toLowerCase().includes(search))
+    : users;
+
+  const list = document.getElementById('admin-users-list');
+  if (filtered.length === 0) {
+    list.innerHTML = '<div class="admin-empty">No users found.</div>';
+    return;
+  }
+  list.innerHTML = filtered.map(u => {
+    const active = isSubscriptionActive(u);
+    const expiryNote = active ? ` · expires ${new Date(u.subscriptionExpiresAt).toLocaleDateString('en-GB')}` : (u.subscribed ? ' · expired' : '');
+    const trialsGranted = u.trialsGranted || 0;
+    const trialsLeft = Math.max(0, MAX_FREE_TRIALS - trialsGranted);
+    const hasActiveTrial = !!u.trialActive && active;
+    let trialBtn;
+    if (hasActiveTrial) {
+      trialBtn = `<button class="trial-btn revoke" onclick="revokeFreeTrial('${u.id}')">Revoke Trial</button>`;
+    } else if (trialsLeft > 0) {
+      trialBtn = `<button class="trial-btn" onclick="grantFreeTrial('${u.id}')">+ Free Trial</button>`;
+    } else {
+      trialBtn = `<button class="trial-btn" disabled>No trials left</button>`;
+    }
+    return `
+    <div class="user-row">
+      <div>
+        <div class="uid">${u.name || '(no name)'}</div>
+        <div class="umeta">${u.email || u.phone || ''} · joined ${new Date(u.createdAt).toLocaleDateString('en-GB')}${expiryNote}${hasActiveTrial ? ' · on trial' : ''}</div>
+      </div>
+      <div class="uright">
+        <span class="upill ${active ? 'pro' : 'free'}">${active ? 'Pro' : 'Free'}</span>
+        ${trialBtn}
+        <span class="trial-note">${trialsGranted}/${MAX_FREE_TRIALS} trials used</span>
+      </div>
+    </div>
+  `;
+  }).join('');
+}
+
+// Grants a free Pro trial to a user. An admin can do this for any given
+// user up to MAX_FREE_TRIALS times; each trial lasts FREE_TRIAL_DAYS days
+// and stacks on top of (extends) any remaining active subscription time.
+// `trialPreGrantExpiresAt` remembers what subscriptionExpiresAt was right
+// before this trial was added, so a revoke can cleanly roll it back.
+async function grantFreeTrial(userId) {
+  try {
+    const userRecord = await window.fb.get('users', userId);
+    if (!userRecord) { showToast('⚠️ User not found'); return; }
+
+    const trialsGranted = userRecord.trialsGranted || 0;
+    if (trialsGranted >= MAX_FREE_TRIALS) {
+      showToast(`⚠️ This user has already used all ${MAX_FREE_TRIALS} free trials`);
+      return;
+    }
+
+    const durationMs = FREE_TRIAL_DAYS * 24 * 60 * 60 * 1000;
+    // Extend from "now" or from their current expiry, whichever is later,
+    // so a trial granted to an already-active Pro user adds on top instead
+    // of cutting their remaining time short.
+    const preGrantActive = isSubscriptionActive(userRecord);
+    const preGrantExpiresAt = userRecord.subscriptionExpiresAt || null;
+    const base = preGrantActive ? userRecord.subscriptionExpiresAt : Date.now();
+
+    userRecord.subscribed = true;
+    userRecord.subscriptionExpiresAt = base + durationMs;
+    userRecord.trialsGranted = trialsGranted + 1;
+    userRecord.trialActive = true;
+    userRecord.trialPreGrantSubscribed = preGrantActive;
+    userRecord.trialPreGrantExpiresAt = preGrantExpiresAt;
+    await window.fb.set('users', userId, userRecord);
+
+    showToast(`🎉 Free trial granted (${FREE_TRIAL_DAYS} days) — ${userRecord.trialsGranted}/${MAX_FREE_TRIALS} used`);
+    await renderAdminUsers();
+  } catch (err) {
+    console.error('grantFreeTrial failed:', err);
+    showToast('⚠️ Could not grant free trial: ' + (err && err.message ? err.message : String(err)));
+  }
+}
+
+// Revokes a currently-active free trial, rolling the user's subscription
+// back to whatever state it was in right before that trial was granted
+// (still Pro with remaining paid time, or back to Free). The trial stays
+// counted against their MAX_FREE_TRIALS limit — revoking does not refund
+// the trial slot, since the user already received and used it.
+async function revokeFreeTrial(userId) {
+  try {
+    const userRecord = await window.fb.get('users', userId);
+    if (!userRecord) { showToast('⚠️ User not found'); return; }
+
+    if (!userRecord.trialActive) {
+      showToast('⚠️ This user has no active trial to revoke');
+      await renderAdminUsers();
+      return;
+    }
+
+    if (userRecord.trialPreGrantSubscribed && userRecord.trialPreGrantExpiresAt) {
+      userRecord.subscribed = true;
+      userRecord.subscriptionExpiresAt = userRecord.trialPreGrantExpiresAt;
+    } else {
+      userRecord.subscribed = false;
+      userRecord.subscriptionExpiresAt = null;
+    }
+    userRecord.trialActive = false;
+    delete userRecord.trialPreGrantSubscribed;
+    delete userRecord.trialPreGrantExpiresAt;
+    await window.fb.set('users', userId, userRecord);
+
+    showToast('✓ Free trial revoked');
+    await renderAdminUsers();
+  } catch (err) {
+    console.error('revokeFreeTrial failed:', err);
+    showToast('⚠️ Could not revoke free trial: ' + (err && err.message ? err.message : String(err)));
+  }
+}
+
+// ===== STATE =====
+let settings = JSON.parse(localStorage.getItem('rly_settings') || '{}');
+let freeCount = parseInt(localStorage.getItem('rly_free') || '1');
+let isSubscribed = localStorage.getItem('rly_sub') === '1';
+let history = JSON.parse(localStorage.getItem('rly_history') || '[]');
+let currentReceipt = null;
+let currentInvoice = null;
+let contractData = null; // { name, type, dataUrl } for the contract attached to the invoice being built
+let currentDocType = 'receipt'; // 'receipt' | 'invoice' — tracks what's showing in Preview
+let isDark = localStorage.getItem('rly_dark') !== '0';
+let currentTemplate = settings.template || 'classic';
+let currentFont = settings.font || 'Inter,-apple-system,sans-serif';
+let accentColor = settings.accent || '#7c5cfc';
+let logoDataUrl = settings.logo || '';
+
+// ===== SERVICE OPTIONS BY BIZ TYPE =====
+const serviceOptions = {
+  general: ['General Service','Consultation','Custom Order','Other'],
+  photographer: ['Portrait Session','Wedding Coverage','Pre-wedding','Birthday Shoot','Maternity','Newborn','Corporate / Headshot','Event Coverage','Passport / ID','Product Photography','Family Session','Fashion / Editorial','Videography / Cinematography','Wedding Film','Documentary Filming','Video Editing','Drone Coverage','Music Video Production'],
+  makeup: ['Bridal Makeup','Party Makeup','Editorial Makeup','Glam Makeup','Natural Makeup','Aso-Ebi Makeup','Film / TV Makeup','Touch-up','Makeup Lesson'],
+  hairstylist: ['Braiding','Cornrows','Weave Installation','Wig Making','Wig Fixing','Hair Treatment','Relaxer / Perm','Hair Coloring','Blow Dry & Style','Loc Maintenance','Natural Hair Styling'],
+  'hair-vendor': ['Brazilian Hair','Peruvian Hair','Malaysian Hair','Indian Hair','Bone Straight','Kinky Curly','Body Wave','Deep Wave','Closure','Frontal','Wigs','Bundles'],
+  fashion: ['Ready-to-Wear','Custom Order','Wholesale','Accessories','Shoes','Bags','Lingerie','Children Wear','Men\'s Wear','Occasion Wear'],
+  fabric: ['Ankara / Wax Print','Aso-Oke','Lace Fabric','Silk / Satin','George Fabric','Metals / Jewelry','Gold Accessories','Silver Accessories','Custom Jewelry','Beads'],
+  skincare: ['Skincare Set','Facial Cream','Body Lotion','Serum','Sunscreen','Exfoliator','Toner','Lip Balm','Consultation','Treatment Package'],
+  event: ['Event Planning','Hall Decoration','Wedding Decor','Birthday Decor','Balloon Setup','Catering Coordination','MC Services','Photography Package'],
+  catering: ['Full Catering','Small Chops','Jollof Rice','Fried Rice','Egusi Soup','Pepper Soup','Birthday Cake','Wedding Cake','Pastries','Drinks Package'],
+  tailor: ['Dress','Suit','Native Attire','Alterations','Embroidery','Agbada','Iro & Buba','Ankara Outfit','Children\'s Wear','Corporate Wear'],
+  nails: ['Acrylic Nails','Gel Nails','Nail Art','Manicure','Pedicure','Nail Removal','Press-on Nails','Nail Repair'],
+  electronics: ['Phone Sales','Phone Repair','Laptop Sales','Laptop Repair','Accessories','Gadget Rental','Installation Service','Software Setup'],
+  construction: ['Building Construction','Renovation','Plumbing','Electrical Wiring','Painting','Roofing','Tiling','POP / Ceiling Work','Welding & Fabrication'],
+  cleaning: ['Home Cleaning','Office Cleaning','Post-Construction Cleaning','Fumigation','Carpet Cleaning','Laundry & Dry Cleaning','Upholstery Cleaning'],
+  logistics: ['Package Delivery','Dispatch Rider Service','Inter-state Delivery','Errand Service','Moving / Relocation','Warehousing'],
+  auto: ['Engine Repair','Diagnostics','Oil Change','Tyre Service','Car Wash / Detailing','Bodywork / Spraying','AC Repair','Towing'],
+  consulting: ['Business Consulting','Strategy Session','Financial Advisory','HR Consulting','Marketing Consulting','One-on-One Coaching'],
+  tech: ['Website Design','Web Development','Mobile App Development','Software Maintenance','IT Support','Graphic Design','Branding','Social Media Management'],
+  education: ['One-on-One Tutoring', 'Group Lessons','Exam Prep','Online Course','School Consultancy','Music Lessons','Language Lessons'],
+  fitness: ['Personal Training Session','Gym Membership','Group Class','Nutrition Plan','Yoga Session','Online Coaching'],
+  furniture: ['Custom Furniture','Furniture Sales','Interior Design Consultation','Upholstery','Curtains & Blinds','Home Styling'],
+  realestate: ['Property Sale','Property Rental','Property Management','Land Sale','Inspection Fee','Agency Commission'],
+  agriculture: ['Crop Produce','Livestock Sale','Farm Inputs','Poultry Products','Fishery Products','Farm Consultancy'],
+  printing: ['Flyer Printing','Business Cards','Banner / Signage','Branded Merchandise','Graphic Design','Large Format Printing'],
+  legal: ['Consultation','Document Review','Contract Drafting','Notary Service','Legal Representation','Company Registration'],
+  medical: ['Consultation Fee','Treatment Session','Lab Test','Therapy Session','Home Visit','Wellness Package'],
+  petcare: ['Veterinary Consultation','Vaccination','Grooming','Pet Boarding','Pet Training','Pet Food / Supplies'],
+  other: ['General Service','Product Sale','Consultation','Custom Order']
+};
+
+// ===== INIT =====
+function init() {
+  applyMode();
+  applyAccentColor(accentColor, true);
+  loadSettings();
+  renderFreeUI();
+  renderSetupBanner();
+  updateHistoryPage();
+  for (let i = 0; i < 5; i++) addLineItem(); // 5 default rows
+  updateServiceOptions();
+  for (let i = 0; i < 5; i++) addInvoiceLineItem(); // 5 default rows for invoice
+  updateInvoiceServiceOptions();
+  generateInvoiceNumber();
+}
+
+function updateCurrencyLabels() {
+  const sym = getCurrencySymbol();
+  const priceLabel = document.getElementById('price-currency-label');
+  const invPriceLabel = document.getElementById('inv-price-currency-label');
+  const amountPaidLabel = document.getElementById('amount-paid-currency-label');
+  if (priceLabel) priceLabel.textContent = `Amount (${sym})`;
+  if (invPriceLabel) invPriceLabel.textContent = `Amount (${sym})`;
+  if (amountPaidLabel) amountPaidLabel.textContent = `Amount paid (${sym})`;
+  const invManualTotalLabel = document.getElementById('inv-manual-total-label');
+  if (invManualTotalLabel) invManualTotalLabel.textContent = `Total Amount Due (${sym})`;
+  const recManualTotalLabel = document.getElementById('rec-manual-total-label');
+  if (recManualTotalLabel) recManualTotalLabel.textContent = `Total Amount (${sym})`;
+  const invDeliveryFeeLabel = document.getElementById('inv-delivery-fee-label');
+  if (invDeliveryFeeLabel) invDeliveryFeeLabel.textContent = `Delivery fee (${sym})`;
+}
+
+function loadSettings() {
+  document.getElementById('set-bizname').value = settings.bizname || '';
+  document.getElementById('set-tagline').value = settings.tagline || '';
+  document.getElementById('set-address').value = settings.address || '';
+  document.getElementById('set-bizemail').value = settings.bizemail || '';
+  document.getElementById('set-phone').value = settings.phone || '';
+  document.getElementById('set-bankname').value = settings.bankname || '';
+  document.getElementById('set-bankacctname').value = settings.bankacctname || '';
+  document.getElementById('set-bankacctno').value = settings.bankacctno || '';
+  document.getElementById('accentColor').value = settings.accent || accentColor;
+  document.getElementById('set-currency').value = settings.currency || 'NGN';
+
+  if (settings.logo) {
+    logoDataUrl = settings.logo;
+    document.getElementById('logo-preview-img').src = settings.logo;
+    document.getElementById('logo-preview-img').style.display = 'block';
+    document.getElementById('logo-upload-hint').style.display = 'none';
+  } else {
+    logoDataUrl = '';
+    document.getElementById('logo-preview-img').src = '';
+    document.getElementById('logo-preview-img').style.display = 'none';
+    document.getElementById('logo-upload-hint').style.display = 'block';
+  }
+
+  selectTemplate(settings.template || 'classic', true);
+
+  const fontToUse = settings.font || 'Inter,-apple-system,sans-serif';
+  currentFont = fontToUse;
+  document.querySelectorAll('.font-chip').forEach(c => {
+    c.classList.toggle('active', c.dataset.font === fontToUse);
+  });
+
+  updateCurrencyLabels();
+}
+
+let saveSettingsDebounceTimer = null;
+
+// Pushes the current `settings` object to the user's Firestore record,
+// debounced so rapid typing doesn't fire a write per keystroke.
+function syncBusinessInfoToFirestore() {
+  if (!currentUser || typeof window.fb === 'undefined') return;
+  clearTimeout(saveSettingsDebounceTimer);
+  saveSettingsDebounceTimer = setTimeout(async () => {
+    try {
+      currentUser.businessInfo = settings;
+      await window.fb.set('users', currentUser.id, currentUser);
+    } catch (e) { console.error('Could not sync business info:', e); }
+  }, 600);
+}
+
+// ===== ONBOARDING: BUSINESS SETUP PROGRESS BANNER =====
+// Tracks 4 key fields a new business should fill in. Shown on the New
+// Receipt page until all 4 are done, or until the user dismisses it for
+// this session (it reappears next login if still incomplete).
+function computeSetupProgress() {
+  const items = [
+    { key: 'bizname', label: 'Business name', done: !!(settings.bizname && settings.bizname.trim()) },
+    { key: 'address', label: 'Business address', done: !!(settings.address && settings.address.trim()) },
+    { key: 'bank', label: 'Bank details', done: !!(settings.bankname && settings.bankname.trim() && settings.bankacctno && settings.bankacctno.trim()) },
+    { key: 'logo', label: 'Business logo', done: !!settings.logo }
+  ];
+  const done = items.filter(i => i.done).length;
+  return { items, done, total: items.length };
+}
+
+function renderSetupBanner() {
+  const banner = document.getElementById('setup-banner');
+  if (!banner) return;
+  const { done, total } = computeSetupProgress();
+  const dismissed = sessionStorage.getItem('rly_setup_banner_dismissed') === '1';
+
+  if (done >= total || dismissed) {
+    banner.style.display = 'none';
+    return;
+  }
+  document.getElementById('setup-progress-text').textContent = `${done} of ${total}`;
+  document.getElementById('setup-progress-fill').style.width = Math.round((done / total) * 100) + '%';
+  banner.style.display = 'block';
+}
+
+function dismissSetupBanner() {
+  sessionStorage.setItem('rly_setup_banner_dismissed', '1');
+  const banner = document.getElementById('setup-banner');
+  if (banner) banner.style.display = 'none';
+}
+
+function saveSettings() {
+  settings.bizname = document.getElementById('set-bizname').value;
+  settings.tagline = document.getElementById('set-tagline').value;
+  settings.address = document.getElementById('set-address').value;
+  settings.bizemail = document.getElementById('set-bizemail').value;
+  settings.phone = document.getElementById('set-phone').value;
+  settings.bankname = document.getElementById('set-bankname').value;
+  settings.bankacctname = document.getElementById('set-bankacctname').value;
+  settings.bankacctno = document.getElementById('set-bankacctno').value;
+  settings.currency = document.getElementById('set-currency').value;
+  localStorage.setItem('rly_settings', JSON.stringify(settings));
+  updateCurrencyLabels();
+  syncBusinessInfoToFirestore();
+  renderSetupBanner();
+}
+
+
+// ===== TABS =====
+function switchTab(t) {
+  document.querySelectorAll('.tab').forEach((b,i) => b.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const tabs = ['form','invoiceform','preview','settings','history'];
+  const idx = tabs.indexOf(t);
+  document.querySelectorAll('.tab')[idx].classList.add('active');
+  document.getElementById('page-'+t).classList.add('active');
+  document.getElementById('generate-receipt-btn').style.display = (t === 'form') ? 'flex' : 'none';
+  document.getElementById('generate-invoice-btn').style.display = (t === 'invoiceform') ? 'flex' : 'none';
+  if (t === 'preview') {
+    const editWrap = document.getElementById('edit-invoice-btn-wrap');
+    if (editWrap) {
+      const hasDoc = (currentDocType === 'invoice' && currentInvoice) || (currentDocType === 'receipt' && currentReceipt);
+      editWrap.style.display = hasDoc ? 'block' : 'none';
+      const label = document.getElementById('edit-doc-btn-label');
+      if (label) label.textContent = currentDocType === 'invoice' ? 'Edit Invoice' : 'Edit Receipt';
+    }
+  }
+  if (t === 'history') updateHistoryPage();
+}
+
+// ===== DARK/LIGHT MODE =====
+function toggleMode() {
+  isDark = !isDark;
+  localStorage.setItem('rly_dark', isDark ? '1' : '0');
+  applyMode();
+}
+function applyMode() {
+  document.body.classList.toggle('light', !isDark);
+}
+
+// ===== SERVICE OPTIONS =====
+function updateServiceOptions() {
+  const biz = document.getElementById('bizType').value;
+  const opts = serviceOptions[biz] || serviceOptions.general;
+  const sel = document.getElementById('serviceType');
+  sel.innerHTML = '<option value="">Select…</option>' + opts.map(o => `<option>${o}</option>`).join('');
+}
+
+function updateInvoiceServiceOptions() {
+  const biz = document.getElementById('inv-bizType').value;
+  const opts = serviceOptions[biz] || serviceOptions.general;
+  const sel = document.getElementById('inv-serviceType');
+  sel.innerHTML = '<option value="">Select…</option>' + opts.map(o => `<option>${o}</option>`).join('');
+}
+
+// ===== LINE ITEMS =====
+function addLineItem(desc='', unit='', price='', qty=1) {
+  const container = document.getElementById('lineItems');
+  const id = 'li_' + Date.now() + Math.random().toString(36).slice(2,5);
+  const div = document.createElement('div');
+  div.className = 'line-item';
+  div.id = id;
+  div.innerHTML = `
+    <input type="text" placeholder="e.g. Drone, Photobook…" value="${desc}" class="li-desc"/>
+    <input type="text" placeholder="e.g. hrs" value="${unit}" class="li-unit" style="font-size:12px"/>
+    <input type="number" placeholder="0.00" value="${price}" min="0" class="li-price" inputmode="decimal"/>
+    <input type="number" placeholder="1" value="${qty}" min="1" class="li-qty" inputmode="numeric"/>
+    <button class="line-item-remove" onclick="removeLineItem('${id}')">×</button>
+  `;
+  container.appendChild(div);
+}
+
+function removeLineItem(id) {
+  const el = document.getElementById(id);
+  if (el) el.remove();
+  if (document.getElementById('lineItems').children.length === 0) addLineItem();
+}
+
+function getLineItems() {
+  const items = [];
+  document.querySelectorAll('#lineItems .line-item').forEach(li => {
+    const desc = li.querySelector('.li-desc').value.trim();
+    const unit = li.querySelector('.li-unit').value.trim();
+    const price = parseFloat(li.querySelector('.li-price').value) || 0;
+    const qty = parseFloat(li.querySelector('.li-qty').value) || 1;
+    if (desc || price > 0) items.push({desc: desc || 'Service', unit, price, qty, total: price * qty});
+  });
+  return items;
+}
+
+// ===== INVOICE LINE ITEMS =====
+function addInvoiceLineItem(desc='', unit='', price='', qty=1) {
+  const container = document.getElementById('inv-lineItems');
+  const id = 'ili_' + Date.now() + Math.random().toString(36).slice(2,5);
+  const div = document.createElement('div');
+  div.className = 'line-item';
+  div.id = id;
+  div.innerHTML = `
+    <input type="text" placeholder="e.g. Drone, Photobook…" value="${desc}" class="li-desc"/>
+    <input type="text" placeholder="e.g. hrs" value="${unit}" class="li-unit" style="font-size:12px"/>
+    <input type="number" placeholder="0.00" value="${price}" min="0" class="li-price" inputmode="decimal"/>
+    <input type="number" placeholder="1" value="${qty}" min="1" class="li-qty" inputmode="numeric"/>
+    <button class="line-item-remove" onclick="removeInvoiceLineItem('${id}')">×</button>
+  `;
+  container.appendChild(div);
+}
+
+function removeInvoiceLineItem(id) {
+  const el = document.getElementById(id);
+  if (el) el.remove();
+  if (document.getElementById('inv-lineItems').children.length === 0) addInvoiceLineItem();
+}
+
+function getInvoiceLineItems() {
+  const items = [];
+  document.querySelectorAll('#inv-lineItems .line-item').forEach(li => {
+    const desc = li.querySelector('.li-desc').value.trim();
+    const unit = li.querySelector('.li-unit').value.trim();
+    const price = parseFloat(li.querySelector('.li-price').value) || 0;
+    const qty = parseFloat(li.querySelector('.li-qty').value) || 1;
+    if (desc || price > 0) items.push({desc: desc || 'Service', unit, price, qty, total: price * qty});
+  });
+  return items;
+}
+
+// ===== PAYMENT =====
+function togglePartPayment() {
+  const v = document.getElementById('payStatus').value;
+  document.getElementById('amountPaidField').style.display = v === 'Part payment' ? 'block' : 'none';
+}
+
+// ===== FREE COUNT UI =====
+function renderFreeUI() {
+  const left = Math.max(0, freeCount);
+  document.getElementById('free-left').textContent = left;
+  document.getElementById('free-count-big').textContent = left;
+  document.getElementById('used-count').textContent = 1 - left;
+  if (isSubscribed) {
+    const remaining = currentUser ? daysRemaining(currentUser) : 0;
+    document.getElementById('sub-badge').textContent = remaining > 0 ? `✓ Pro · ${remaining}d left` : '✓ Pro';
+    document.getElementById('sub-badge').style.background = 'rgba(34,197,94,.15)';
+    document.getElementById('sub-badge').style.color = '#22c55e';
+    document.getElementById('sub-badge').style.borderColor = 'rgba(34,197,94,.25)';
+    document.getElementById('free-banner').style.display = 'none';
+  }
+}
+
+// ===== GENERATE RECEIPT =====
+function generateReceipt() {
+  const name = document.getElementById('clientName').value.trim();
+  if (!name) { showToast('⚠️ Please enter client name'); return; }
+
+  // Re-check Pro expiry live, in case 30 days lapsed during this session
+  if (isSubscribed && currentUser && !isSubscriptionActive(currentUser)) {
+    isSubscribed = false;
+    localStorage.setItem('rly_sub', '0');
+    currentUser.subscribed = false;
+    if (typeof window.fb !== 'undefined') {
+      window.fb.set('users', currentUser.id, currentUser).catch(e => console.error(e));
+    }
+    renderFreeUI();
+    showToast('⏰ Your Pro access has expired. Renew to keep creating unlimited receipts.');
+  }
+
+  // Check free limit
+  if (!isSubscribed && freeCount <= 0) {
+    showSubscribeModal(); return;
+  }
+
+  const items = getLineItems();
+  const phone = document.getElementById('phone').value.trim();
+  const email = document.getElementById('email').value.trim();
+  const serviceType = document.getElementById('serviceType').value;
+  const payment = document.getElementById('payment').value;
+  const payStatus = document.getElementById('payStatus').value;
+  const amountPaid = parseFloat(document.getElementById('amountPaid').value) || 0;
+  const note = document.getElementById('noteToClient').value.trim();
+  const bizType = document.getElementById('bizType').value;
+
+  const recManualTotal = parseFloat(document.getElementById('rec-manualTotal').value) || 0;
+  const hasRecItemAmounts = items.some(i => i.amount > 0);
+  const useRecManualTotal = !hasRecItemAmounts && recManualTotal > 0;
+  const grandTotal = useRecManualTotal ? recManualTotal : items.reduce((s, i) => s + i.total, 0);
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-GB', {day:'2-digit',month:'long',year:'numeric'});
+  const timeStr = now.toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'});
+  const receiptNo = 'RLY-' + now.getFullYear() + String(now.getMonth()+1).padStart(2,'0') + String(now.getDate()).padStart(2,'0') + '-' + Math.floor(Math.random()*9000+1000);
+
+  const bizName = (settings.bizname || 'My Business').toUpperCase();
+  const bizTagline = settings.tagline || getBizTagline(bizType);
+
+  currentReceipt = {name,phone,email,items,serviceType,payment,payStatus,amountPaid,note,grandTotal,useManualTotal:useRecManualTotal,receiptNo,dateStr,timeStr,bizName,bizTagline};
+  currentDocType = 'receipt';
+
+  // Render receipt card
+  renderReceiptCard(currentReceipt);
+
+  // Deduct free count
+  if (!isSubscribed) {
+    freeCount = Math.max(0, freeCount - 1);
+    localStorage.setItem('rly_free', freeCount);
+    renderFreeUI();
+  }
+
+  // Save to history
+  history.unshift({...currentReceipt, id: receiptNo, ts: Date.now(), docType: 'receipt'});
+  if (history.length > 50) history.pop();
+  safeSaveHistory();
+
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('receipt-output').style.display = 'block';
+  switchTab('preview');
+}
+
+// ===== INVOICE NUMBER =====
+// Saves `history` to localStorage, gracefully degrading if storage runs out
+// of space. Large attachments (invoice contracts) are the most likely
+// cause of a quota error, so on failure we retry without contract data
+// rather than losing the whole receipt/invoice that was just created.
+function safeSaveHistory() {
+  try {
+    localStorage.setItem('rly_history', JSON.stringify(history));
+    return true;
+  } catch (e) {
+    console.error('History save failed, retrying without contract attachments:', e);
+    try {
+      const stripped = history.map(h => h.contract ? { ...h, contract: null } : h);
+      localStorage.setItem('rly_history', JSON.stringify(stripped));
+      showToast('⚠️ Saved, but contract attachment was too large to keep in history');
+      return true;
+    } catch (e2) {
+      console.error('History save failed even without attachments:', e2);
+      // Last resort: drop oldest entries until it fits, or give up gracefully
+      while (history.length > 1) {
+        history.pop();
+        try {
+          localStorage.setItem('rly_history', JSON.stringify(history));
+          showToast('⚠️ Storage is full — older history entries were removed to make room');
+          return true;
+        } catch (e3) { /* keep trimming */ }
+      }
+      showToast('⚠️ Could not save to history — device storage is full');
+      return false;
+    }
+  }
+}
+
+function generateInvoiceNumber() {
+  let counter = parseInt(localStorage.getItem('rly_invoice_counter') || '0', 10);
+  counter += 1;
+  localStorage.setItem('rly_invoice_counter', String(counter));
+  const num = 'INV-' + String(counter).padStart(3, '0');
+  const field = document.getElementById('inv-number');
+  if (field) field.value = num;
+  return num;
+}
+
+// ===== GENERATE INVOICE =====
+function generateInvoice() {
+  const name = document.getElementById('inv-clientName').value.trim();
+  if (!name) { showToast('⚠️ Please enter client name'); return; }
+
+  // Re-check Pro expiry live, in case 30 days lapsed during this session
+  if (isSubscribed && currentUser && !isSubscriptionActive(currentUser)) {
+    isSubscribed = false;
+    localStorage.setItem('rly_sub', '0');
+    currentUser.subscribed = false;
+    if (typeof window.fb !== 'undefined') {
+      window.fb.set('users', currentUser.id, currentUser).catch(e => console.error(e));
+    }
+    renderFreeUI();
+    showToast('⏰ Your Pro access has expired. Renew to keep creating unlimited invoices.');
+  }
+
+  // Check free limit (invoices share the same free quota as receipts)
+  if (!isSubscribed && freeCount <= 0) {
+    showSubscribeModal(); return;
+  }
+
+  const items = getInvoiceLineItems();
+  if (items.length === 0) { showToast('⚠️ Add at least one item or service'); return; }
+
+  const phone = document.getElementById('inv-phone').value.trim();
+  const email = document.getElementById('inv-email').value.trim();
+  const clientAddress = document.getElementById('inv-clientAddress').value.trim();
+  const serviceType = document.getElementById('inv-serviceType').value;
+  const payStatus = document.getElementById('inv-payStatus').value; // 'Unpaid' | 'Paid'
+  const terms = document.getElementById('inv-terms').value.trim();
+  const bizType = document.getElementById('inv-bizType').value;
+  const dueDateRaw = document.getElementById('inv-duedate').value;
+  const manualTotal = parseFloat(document.getElementById('inv-manualTotal').value) || 0;
+
+  // Package & Delivery
+  const pkgName = document.getElementById('inv-pkg-name').value.trim();
+  const pkgQty = document.getElementById('inv-pkg-qty').value.trim();
+  const pkgDesc = document.getElementById('inv-pkg-desc').value.trim();
+  const deliveryMethod = document.getElementById('inv-delivery-method').value;
+  const deliveryFee = parseFloat(document.getElementById('inv-delivery-fee').value) || 0;
+  const deliveryAddr = document.getElementById('inv-delivery-addr').value.trim();
+  const deliveryDateRaw = document.getElementById('inv-delivery-date').value;
+  const deliveryDateStr = deliveryDateRaw
+    ? new Date(deliveryDateRaw + 'T00:00:00').toLocaleDateString('en-GB', {day:'2-digit',month:'long',year:'numeric'})
+    : '';
+  const trackingNo = document.getElementById('inv-tracking-no').value.trim();
+
+  // Determine if any item has an amount entered
+  const hasItemAmounts = items.some(i => i.amount > 0);
+  // Use manual total if no per-item amounts entered and manual total is set
+  const useManualTotal = !hasItemAmounts && manualTotal > 0;
+  const grandTotal = useManualTotal ? manualTotal : items.reduce((s, i) => s + i.total, 0);
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-GB', {day:'2-digit',month:'long',year:'numeric'});
+  const dueDateStr = dueDateRaw
+    ? new Date(dueDateRaw + 'T00:00:00').toLocaleDateString('en-GB', {day:'2-digit',month:'long',year:'numeric'})
+    : '';
+  const invoiceNo = document.getElementById('inv-number').value || generateInvoiceNumber();
+
+  const bizName = (settings.bizname || 'My Business').toUpperCase();
+  const bizTagline = settings.tagline || getBizTagline(bizType);
+  const bizAddress = settings.address || '';
+  const bizEmail = settings.bizemail || '';
+  const bizPhone = settings.phone || '';
+  const bankName = settings.bankname || '';
+  const bankAcctName = settings.bankacctname || '';
+  const bankAcctNo = settings.bankacctno || '';
+
+  currentInvoice = {
+    name, phone, email, clientAddress, items, serviceType, payStatus, terms,
+    grandTotal, useManualTotal, invoiceNo, dateStr, dueDateStr, bizName, bizTagline, bizAddress,
+    bizEmail, bizPhone, bankName, bankAcctName, bankAcctNo,
+    pkgName, pkgQty, pkgDesc, deliveryMethod, deliveryFee, deliveryAddr, deliveryDateStr, trackingNo,
+    contract: contractData ? { ...contractData } : null
+  };
+  currentDocType = 'invoice';
+
+  renderInvoiceCard(currentInvoice);
+
+  // Deduct free count (invoices share the same free quota as receipts)
+  if (!isSubscribed) {
+    freeCount = Math.max(0, freeCount - 1);
+    localStorage.setItem('rly_free', freeCount);
+    renderFreeUI();
+  }
+
+  // Save to history
+  history.unshift({...currentInvoice, id: invoiceNo, ts: Date.now(), docType: 'invoice'});
+  if (history.length > 50) history.pop();
+  safeSaveHistory();
+
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('receipt-output').style.display = 'block';
+  switchTab('preview');
+
+  // Prepare next invoice number for the next one
+  generateInvoiceNumber();
+}
+
+function getBizTagline(biz) {
+  const map = {photographer:'Photography & Cinematography',makeup:'Makeup Artist',hairstylist:'Hair Salon',
+    'hair-vendor':'Hair Vendor',fashion:'Fashion & Clothing',fabric:'Fabric & Textiles',
+    skincare:'Skincare & Beauty',event:'Event Planner',catering:'Catering Services',
+    tailor:'Fashion Designer',nails:'Nail Technician',electronics:'Electronics & Gadgets',
+    construction:'Construction & Building',cleaning:'Cleaning Services',logistics:'Logistics & Delivery',
+    auto:'Auto Repair & Service',consulting:'Consulting Services',tech:'Tech & Software Services',
+    education:'Tutoring & Education',fitness:'Fitness & Training',furniture:'Furniture & Interior Decor',
+    realestate:'Real Estate & Property',agriculture:'Agriculture & Farm Produce',printing:'Printing & Branding',
+    legal:'Legal Services',medical:'Health & Medical Services',petcare:'Pet Care & Veterinary',
+    other:'Business Services'};
+  return map[biz] || 'Business Services';
+}
+
+const CURRENCY_SYMBOLS = {
+  NGN: '₦', USD: '$', GBP: '£', EUR: '€', GHS: '₵', KES: 'KSh',
+  ZAR: 'R', XOF: 'CFA', CAD: '$', AUD: '$', INR: '₹', AED: 'د.إ'
+};
+const CURRENCY_LOCALES = {
+  NGN: 'en-NG', USD: 'en-US', GBP: 'en-GB', EUR: 'de-DE', GHS: 'en-GH', KES: 'en-KE',
+  ZAR: 'en-ZA', XOF: 'fr-SN', CAD: 'en-CA', AUD: 'en-AU', INR: 'en-IN', AED: 'ar-AE'
+};
+
+function getCurrencySymbol() {
+  const code = (settings.currency || 'NGN');
+  return CURRENCY_SYMBOLS[code] || '₦';
+}
+
+function fmt(n) {
+  const code = (settings.currency || 'NGN');
+  const symbol = CURRENCY_SYMBOLS[code] || '₦';
+  const locale = CURRENCY_LOCALES[code] || 'en-NG';
+  return symbol + Number(n).toLocaleString(locale, {minimumFractionDigits:0, maximumFractionDigits:0});
+}
+
+function renderReceiptCard(r) {
+  const ac = accentColor;
+  const statusMap = {
+    'Paid': `<span class="r-status-badge paid">✓ Paid</span>`,
+    'Part payment': `<span class="r-status-badge part">⏳ Part Payment</span>`,
+    'Pending': `<span class="r-status-badge pending">⚠ Pending</span>`
+  };
+
+  const logoHTML = logoDataUrl ? `<img class="r-logo" src="${logoDataUrl}" alt="logo"/>` : '';
+
+  const showRecAmounts = !r.useManualTotal;
+  const rowsHTML = r.items.map(item => {
+    const qty = item.qty || 1;
+    const price = item.price ?? item.amount ?? (item.total / qty);
+    return `
+    <tr>
+      <td>${item.desc}${item.unit ? `<span style="font-size:11px;color:#9a9aa8;margin-left:5px">(${item.unit})</span>` : ''}${showRecAmounts && qty > 1 ? `<span style="font-size:11px;color:#9a9aa8;margin-left:5px">× ${qty}</span>` : ''}</td>
+      ${showRecAmounts ? `<td>${fmt(price)}</td><td>${qty}</td><td>${fmt(item.total)}</td>` : ''}
+    </tr>`;
+  }).join('');
+
+  const serviceEmoji = getServiceEmoji(document.getElementById('bizType').value);
+  const balance = r.grandTotal - r.amountPaid;
+  const clientDetailLines = [r.phone, r.email].filter(Boolean);
+
+  const card = `<div class="receipt-wrap" style="--inv-accent:${ac};--rf:${currentFont}">
+    ${r.payStatus === 'Paid' ? `<div class="inv-paid-stamp">PAID</div>` : ''}
+    <div class="r-doc-title">Receipt</div>
+    <div class="inv-header">
+      ${logoHTML}
+      <div class="r-biz-name">${r.bizName}</div>
+      ${r.bizTagline ? `<div class="inv-biz-detail">${r.bizTagline}</div>` : ''}
+    </div>
+
+    <div class="inv-info-row">
+      <div>
+        <div class="r-billto-label">Billed To</div>
+        <div class="r-billto-name">${r.name}</div>
+        ${clientDetailLines.map(d => `<div class="r-billto-detail">${d}</div>`).join('')}
+        ${r.serviceType ? `<div class="r-service-badge" style="background:${ac}18;color:${ac};border:1px solid ${ac}33">${serviceEmoji} ${r.serviceType}</div>` : ''}
+      </div>
+      <div class="inv-meta-block">
+        <div class="inv-meta-row"><span class="lbl">Receipt number</span>${r.receiptNo}</div>
+        <div class="inv-meta-row"><span class="lbl">Date</span>${r.dateStr}</div>
+      </div>
+    </div>
+
+    <table class="r-table">
+      <thead><tr><th>Item</th>${showRecAmounts ? '<th>Price</th><th>Quantity</th><th>Amount</th>' : ''}</tr></thead>
+      <tbody>${rowsHTML}</tbody>
+    </table>
+
+    ${r.payment ? `<div style="font-size:11px;color:#9a9aa8;margin-top:8px">Paid via: ${r.payment}</div>` : ''}
+
+    <div class="r-totals">
+      <div class="r-total-row main">
+        <div class="label">Total</div>
+        <div class="val">${fmt(r.grandTotal)}</div>
+      </div>
+      <div class="r-total-row">
+        <div>${statusMap[r.payStatus] || ''}</div>
+        ${r.payStatus === 'Part payment' ? `<div class="r-balance">Paid: ${fmt(r.amountPaid)} · Balance: ${fmt(balance)}</div>` : ''}
+      </div>
+    </div>
+
+    ${r.note ? `<div class="r-note">${r.note}</div>` : ''}
+
+    <div class="r-footer">
+      <div class="r-footer-text">Thank you for your patronage!</div>
+      <div class="r-footer-brand">RECEIPTLY</div>
+    </div>
+  </div>`;
+
+  document.getElementById('receipt-card').innerHTML = card;
+}
+
+function renderInvoiceCard(inv) {
+  const ac = accentColor;
+  const isPaid = inv.payStatus === 'Paid';
+
+  const logoHTML = logoDataUrl ? `<img class="inv-logo" src="${logoDataUrl}" alt="logo"/>` : '';
+
+  // If useManualTotal, hide per-item amounts column; only show descriptions
+  const showAmounts = !inv.useManualTotal;
+
+  const rowsHTML = inv.items.map(item => {
+    const qty = item.qty || 1;
+    const price = item.price ?? item.amount ?? (item.total / qty);
+    return `
+    <tr>
+      <td>${item.desc}${item.unit ? `<span style="font-size:11px;color:#9a9aa8;margin-left:5px">(${item.unit})</span>` : ''}${showAmounts && qty > 1 ? `<span style="font-size:11px;color:#9a9aa8;margin-left:5px">× ${qty}</span>` : ''}</td>
+      ${showAmounts ? `<td>${fmt(price)}</td><td>${qty}</td><td>${fmt(item.total)}</td>` : ''}
+    </tr>`;
+  }).join('');
+
+  const bizDetailLines = [inv.bizAddress, inv.bizPhone, inv.bizEmail].filter(Boolean);
+  const clientDetailLines = [inv.phone, inv.email, inv.clientAddress].filter(Boolean);
+
+  const card = `<div class="invoice-wrap" style="--inv-accent:${ac};--rf:${currentFont}">
+    ${isPaid ? `<div class="inv-paid-stamp">PAID</div>` : ''}
+    <div class="inv-header">
+      <div class="inv-header-top">
+        <div>
+          <div class="inv-title" style="margin-bottom:8px">Invoice</div>
+          <div class="inv-biz-name">${inv.bizName}</div>
+          ${bizDetailLines.map(d => `<div class="inv-biz-detail">${d}</div>`).join('')}
+        </div>
+        ${logoHTML ? `<div style="margin-left:16px;flex-shrink:0">${logoHTML}</div>` : ''}
+      </div>
+    </div>
+
+    <div class="inv-info-row">
+      <div>
+        <div class="inv-billto-label">Bill To</div>
+        <div class="inv-billto-name">${inv.name}</div>
+        ${clientDetailLines.map(d => `<div class="inv-billto-detail">${d}</div>`).join('')}
+        ${inv.serviceType ? `<div class="inv-billto-detail" style="margin-top:4px">Service: ${inv.serviceType}</div>` : ''}
+      </div>
+      <div class="inv-meta-block">
+        <div class="inv-meta-row"><span class="lbl">Invoice number</span>${inv.invoiceNo}</div>
+        <div class="inv-meta-row"><span class="lbl">Issued</span>${inv.dateStr}</div>
+        ${inv.dueDateStr ? `<div class="inv-meta-row"><span class="lbl">Due</span>${inv.dueDateStr}</div>` : ''}
+        ${!isPaid ? `<div class="inv-unpaid-badge">UNPAID</div>` : ''}
+      </div>
+    </div>
+
+    <table class="inv-table">
+      <thead><tr><th>Item</th>${showAmounts ? '<th>Price</th><th>Quantity</th><th>Amount</th>' : ''}</tr></thead>
+      <tbody>${rowsHTML}</tbody>
+    </table>
+
+    ${(inv.pkgName || inv.deliveryDateStr || inv.deliveryAddr || inv.trackingNo) ? `
+    <div class="inv-pkg-box">
+      <div class="inv-pkg-title">Package & Schedule</div>
+      ${inv.pkgName ? `<div class="inv-pkg-row"><span class="lbl">Package</span><span>${inv.pkgName}${inv.pkgQty ? ` × ${inv.pkgQty}` : ''}</span></div>` : ''}
+      ${inv.pkgDesc ? `<div class="inv-pkg-desc">${inv.pkgDesc}</div>` : ''}
+      ${inv.deliveryDateStr ? `<div class="inv-pkg-row"><span class="lbl">Service date</span><span>${inv.deliveryDateStr}</span></div>` : ''}
+      ${inv.deliveryAddr ? `<div class="inv-pkg-row"><span class="lbl">Location</span><span>${inv.deliveryAddr}</span></div>` : ''}
+      ${inv.trackingNo ? `<div class="inv-pkg-row"><span class="lbl">Note</span><span>${inv.trackingNo}</span></div>` : ''}
+    </div>` : ''}
+
+    <div class="inv-totals">
+      <div class="inv-totals-box">
+        <div class="inv-total-row"><span>Subtotal</span><span>${fmt(inv.grandTotal)}</span></div>
+        <div class="inv-total-row grand"><span>Amount due</span><span>${fmt(inv.grandTotal)}</span></div>
+      </div>
+    </div>
+
+    ${(inv.bankName || inv.bankAcctName || inv.bankAcctNo) ? `
+    <div class="inv-payment-box">
+      <div class="inv-payment-title">Payment instruction</div>
+      ${inv.bankName ? `<div class="inv-payment-row"><span class="lbl">Bank name: </span>${inv.bankName}</div>` : ''}
+      ${inv.bankAcctName ? `<div class="inv-payment-row"><span class="lbl">Account name: </span>${inv.bankAcctName}</div>` : ''}
+      ${inv.bankAcctNo ? `<div class="inv-payment-row"><span class="lbl">Account number: </span>${inv.bankAcctNo}</div>` : ''}
+    </div>` : ''}
+
+    ${inv.terms ? `<div class="inv-terms">${inv.terms}</div>` : ''}
+
+    ${inv.contract ? `
+    <div class="inv-contract-row" onclick="viewContract()">
+      <span class="inv-contract-icon">${inv.contract.type === 'application/pdf' ? '📄' : '🖼️'}</span>
+      <span class="inv-contract-label">Signed contract attached: ${inv.contract.name}</span>
+      <span class="inv-contract-view">View →</span>
+    </div>` : ''}
+
+    <div class="inv-footer">
+      <div class="inv-footer-text">Generated with Receiptly</div>
+    </div>
+  </div>`;
+
+  document.getElementById('receipt-card').innerHTML = card;
+}
+
+function viewContract() {
+  const doc = getActiveDoc();
+  if (!doc || !doc.contract) return;
+  const win = window.open('', '_blank');
+  if (doc.contract.type === 'application/pdf') {
+    win.document.write(`<iframe src="${doc.contract.dataUrl}" style="width:100%;height:100%;border:none" title="Contract"></iframe>`);
+  } else {
+    win.document.write(`<img src="${doc.contract.dataUrl}" style="max-width:100%;display:block;margin:0 auto" alt="Contract"/>`);
+  }
+}
+
+function getServiceEmoji(biz) {
+  const m = {photographer:'🎥',makeup:'💄',hairstylist:'💇',
+    'hair-vendor':'👱',fashion:'👗',fabric:'🧵',skincare:'✨',
+    event:'🎉',catering:'🍽️',tailor:'🪡',nails:'💅',
+    electronics:'📱',construction:'🏗️',cleaning:'🧹',logistics:'🚚',
+    auto:'🚗',consulting:'💼',tech:'💻',education:'📚',
+    fitness:'🏋️',furniture:'🛋️',realestate:'🏠',agriculture:'🌾',
+    printing:'🖨️',legal:'⚖️',medical:'🏥',petcare:'🐾',other:'🏷️'};
+  return m[biz] || '🏷️';
+}
+
+// ===== FONT & COLOR =====
+// Template picker has been removed — there is now a single, fixed clean
+// document design shared by invoices and receipts. This function is kept
+// as a harmless no-op so older saved settings with a `template` value
+// don't break loadSettings().
+function selectTemplate(name, silent) {
+  currentTemplate = name;
+  settings.template = name;
+}
+
+function selectFont(el) {
+  document.querySelectorAll('.font-chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  currentFont = el.dataset.font;
+  settings.font = currentFont;
+  localStorage.setItem('rly_settings', JSON.stringify(settings));
+  if (currentReceipt) renderReceiptCard(currentReceipt);
+  syncBusinessInfoToFirestore();
+  showToast('✓ Font applied');
+}
+
+function applyAccentColor(val, silent) {
+  accentColor = val;
+  settings.accent = val;
+  localStorage.setItem('rly_settings', JSON.stringify(settings));
+  if (currentReceipt) renderReceiptCard(currentReceipt);
+  if (!silent) syncBusinessInfoToFirestore();
+}
+
+// ===== LOGO =====
+function handleLogoUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (file.size > 2 * 1024 * 1024) { showToast('⚠️ Image too large (max 2MB)'); return; }
+  const reader = new FileReader();
+  reader.onload = ev => {
+    logoDataUrl = ev.target.result;
+    settings.logo = logoDataUrl;
+    localStorage.setItem('rly_settings', JSON.stringify(settings));
+    document.getElementById('logo-preview-img').src = logoDataUrl;
+    document.getElementById('logo-preview-img').style.display = 'block';
+    document.getElementById('logo-upload-hint').style.display = 'none';
+    if (currentReceipt) renderReceiptCard(currentReceipt);
+    syncBusinessInfoToFirestore();
+    showToast('✓ Logo uploaded');
+    renderSetupBanner();
+  };
+  reader.readAsDataURL(file);
+}
+
+function clearLogo() {
+  logoDataUrl = '';
+  settings.logo = '';
+  localStorage.setItem('rly_settings', JSON.stringify(settings));
+  document.getElementById('logo-preview-img').style.display = 'none';
+  document.getElementById('logo-upload-hint').style.display = 'block';
+  if (currentReceipt) renderReceiptCard(currentReceipt);
+  syncBusinessInfoToFirestore();
+  showToast('✓ Logo removed');
+  renderSetupBanner();
+}
+
+// ===== INVOICE CONTRACT (per-invoice, stored locally with that invoice) =====
+function handleContractUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const ONE_MB = 1 * 1024 * 1024;
+  if (file.size > ONE_MB) {
+    showToast('⚠️ File too large (max 1MB). Try compressing it first.');
+    e.target.value = '';
+    return;
+  }
+  const validTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
+  if (!validTypes.includes(file.type)) {
+    showToast('⚠️ Please upload a PDF or JPG/PNG image');
+    e.target.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = ev => {
+    contractData = { name: file.name, type: file.type, dataUrl: ev.target.result };
+    document.getElementById('contract-file-icon').textContent = file.type === 'application/pdf' ? '📄' : '🖼️';
+    document.getElementById('contract-file-name').textContent = file.name;
+    document.getElementById('contract-upload-hint').style.display = 'none';
+    document.getElementById('contract-preview').style.display = 'block';
+    showToast('✓ Contract attached');
+  };
+  reader.onerror = () => showToast('⚠️ Could not read file. Please try again.');
+  reader.readAsDataURL(file);
+}
+
+function removeContract() {
+  contractData = null;
+  document.getElementById('contract-input').value = '';
+  document.getElementById('contract-upload-hint').style.display = 'block';
+  document.getElementById('contract-preview').style.display = 'none';
+  showToast('✓ Contract removed');
+}
+
+// ===== SAVE AS IMAGE =====
+function getActiveDoc() {
+  return currentDocType === 'invoice' ? currentInvoice : currentReceipt;
+}
+
+function saveAsImage() {
+  const doc = getActiveDoc();
+  if (!doc) return;
+  const card = document.getElementById('receipt-card');
+  const spinner = document.getElementById('spinner');
+  document.getElementById('spinner-lbl').textContent = 'Saving image…';
+  spinner.classList.add('show');
+
+  const bg = '#ffffff';
+
+  const docLabel = currentDocType === 'invoice' ? 'Invoice' : 'Receipt';
+  const docNo = currentDocType === 'invoice' ? doc.invoiceNo : doc.receiptNo;
+
+  html2canvas(card, {backgroundColor:bg, scale:2.5, useCORS:true, logging:false})
+    .then(canvas => {
+      spinner.classList.remove('show');
+      const filename = `${docLabel}-${doc.name.replace(/\s+/g,'-')}-${docNo}.png`;
+      canvas.toBlob(blob => {
+        if (navigator.canShare && navigator.canShare({files:[new File([blob],filename,{type:'image/png'})]})) {
+          navigator.share({files:[new File([blob],filename,{type:'image/png'})], title:docLabel})
+            .catch(() => fallbackDownload(canvas, filename));
+        } else {
+          fallbackDownload(canvas, filename);
+        }
+      }, 'image/png');
+    }).catch(() => {
+      spinner.classList.remove('show');
+      showToast('Could not save image');
+    });
+}
+
+function fallbackDownload(canvas, filename) {
+  const a = document.createElement('a');
+  a.download = filename;
+  a.href = canvas.toDataURL('image/png');
+  a.click();
+  showToast(currentDocType === 'invoice' ? '✓ Invoice image saved!' : '✓ Receipt image saved!');
+}
+
+// ===== SAVE AS PDF =====
+function saveAsPDF() {
+  const doc = getActiveDoc();
+  if (!doc) return;
+  const card = document.getElementById('receipt-card');
+  const spinner = document.getElementById('spinner');
+  document.getElementById('spinner-lbl').textContent = 'Generating PDF…';
+  spinner.classList.add('show');
+
+  const bg = '#ffffff';
+
+  const docLabel = currentDocType === 'invoice' ? 'Invoice' : 'Receipt';
+  const docNo = currentDocType === 'invoice' ? doc.invoiceNo : doc.receiptNo;
+
+  html2canvas(card, {backgroundColor:bg, scale:2.5, useCORS:true, logging:false})
+    .then(canvas => {
+      const {jsPDF} = window.jspdf;
+      const imgData = canvas.toDataURL('image/png');
+
+      const PAGE_W_MM = 210;
+      const ratio = canvas.height / canvas.width;
+      const imgH_mm = PAGE_W_MM * ratio;
+      const A4_H_MM = 297;
+      const MARGIN = 0;
+
+      function multiPagePDF(pdfDoc) {
+        const pxPerMm = canvas.width / PAGE_W_MM;
+        const sliceH_px = Math.floor(A4_H_MM * pxPerMm);
+        let yOffset = 0;
+        let pageIndex = 0;
+        while (yOffset < canvas.height) {
+          if (pageIndex > 0) pdfDoc.addPage();
+          const remaining = canvas.height - yOffset;
+          const sliceActual = Math.min(sliceH_px, remaining);
+          const tmpCanvas = document.createElement('canvas');
+          tmpCanvas.width = canvas.width;
+          tmpCanvas.height = sliceActual;
+          const ctx = tmpCanvas.getContext('2d');
+          ctx.drawImage(canvas, 0, yOffset, canvas.width, sliceActual, 0, 0, canvas.width, sliceActual);
+          const sliceData = tmpCanvas.toDataURL('image/png');
+          const sliceH_mm = sliceActual / pxPerMm;
+          pdfDoc.addImage(sliceData, 'PNG', 0, 0, PAGE_W_MM, sliceH_mm);
+          yOffset += sliceActual;
+          pageIndex++;
+        }
+      }
+
+      if (currentDocType === 'invoice') {
+        // Invoice: always strict A4 page size
+        if (imgH_mm <= A4_H_MM) {
+          const pdf = new jsPDF({orientation:'portrait', unit:'mm', format:'a4'});
+          const topOffset = Math.max(0, (A4_H_MM - imgH_mm) / 2);
+          pdf.addImage(imgData, 'PNG', MARGIN, topOffset, PAGE_W_MM, imgH_mm);
+          pdf.save(`${docLabel}-${doc.name.replace(/\s+/g,'-')}-${docNo}.pdf`);
+        } else {
+          const pdf = new jsPDF({orientation:'portrait', unit:'mm', format:'a4'});
+          multiPagePDF(pdf);
+          pdf.save(`${docLabel}-${doc.name.replace(/\s+/g,'-')}-${docNo}.pdf`);
+        }
+      } else {
+        // Receipt: keep original auto-height (no wasted blank space)
+        if (imgH_mm <= A4_H_MM) {
+          const pdf = new jsPDF({orientation:'portrait', unit:'mm', format:[PAGE_W_MM, imgH_mm]});
+          pdf.addImage(imgData, 'PNG', MARGIN, MARGIN, PAGE_W_MM, imgH_mm);
+          pdf.save(`${docLabel}-${doc.name.replace(/\s+/g,'-')}-${docNo}.pdf`);
+        } else {
+          const pdf = new jsPDF({orientation:'portrait', unit:'mm', format:'a4'});
+          multiPagePDF(pdf);
+          pdf.save(`${docLabel}-${doc.name.replace(/\s+/g,'-')}-${docNo}.pdf`);
+        }
+      }
+
+      spinner.classList.remove('show');
+      showToast('✓ PDF saved!');
+    }).catch(() => {
+      spinner.classList.remove('show');
+      showToast('Could not generate PDF');
+    });
+}
+
+// ===== SHARE =====
+function buildWhatsAppMsg(r) {
+  const biz = settings.bizname || 'My Business';
+  let msg = `*${biz.toUpperCase()}*\n`;
+  if (settings.tagline) msg += `_${settings.tagline}_\n`;
+  msg += `\nReceipt No: ${r.receiptNo}\nDate: ${r.dateStr}\n\n`;
+  msg += `*Client:* ${r.name}\n`;
+  if (r.phone) msg += `*Phone:* ${r.phone}\n`;
+  if (r.serviceType) msg += `*Service:* ${r.serviceType}\n`;
+  msg += `\n`;
+  r.items.forEach(item => {
+    msg += `▪ ${item.desc}${item.unit ? ` (${item.unit})` : ''} — ${fmt(item.total)}\n`;
+  });
+  msg += `\n*Status:* ${r.payStatus}\n`;
+  if (r.payStatus === 'Part payment') {
+    msg += `Paid: ${fmt(r.amountPaid)}  |  Balance: ${fmt(r.grandTotal - r.amountPaid)}\n`;
+  }
+  msg += `\n*TOTAL: ${fmt(r.grandTotal)}*\n\n`;
+  if (r.note) msg += `_${r.note}_\n\n`;
+  msg += `Thank you for your patronage! 🙏`;
+  return msg;
+}
+
+function buildInvoiceWhatsAppMsg(inv) {
+  let msg = `*${inv.bizName}*\n`;
+  if (inv.bizTagline) msg += `_${inv.bizTagline}_\n`;
+  msg += `\n*INVOICE ${inv.invoiceNo}*\nDate: ${inv.dateStr}\n`;
+  if (inv.dueDateStr) msg += `Due: ${inv.dueDateStr}\n`;
+  msg += `\n*Bill To:* ${inv.name}\n`;
+  if (inv.phone) msg += `*Phone:* ${inv.phone}\n`;
+  if (inv.serviceType) msg += `*Service:* ${inv.serviceType}\n`;
+  msg += `\n`;
+  inv.items.forEach(item => {
+    msg += `▪ ${item.desc}${item.unit ? ` (${item.unit})` : ''} — ${fmt(item.total)}\n`;
+  });
+  msg += `\n*TOTAL DUE: ${fmt(inv.grandTotal)}*\n`;
+  msg += `*Status:* ${inv.payStatus === 'Paid' ? '✅ PAID' : '⚠ UNPAID'}\n\n`;
+  if (inv.bankName || inv.bankAcctNo) {
+    msg += `*Payment Details:*\n`;
+    if (inv.bankName) msg += `Bank: ${inv.bankName}\n`;
+    if (inv.bankAcctName) msg += `Account Name: ${inv.bankAcctName}\n`;
+    if (inv.bankAcctNo) msg += `Account Number: ${inv.bankAcctNo}\n`;
+    msg += `\n`;
+  }
+  if (inv.terms) msg += `_${inv.terms}_\n\n`;
+  if (inv.contract) msg += `📎 Signed contract attached: ${inv.contract.name}\n\n`;
+  msg += `Thank you for choosing ${inv.bizName}.`;
+  return msg;
+}
+
+function shareWhatsApp() {
+  const doc = getActiveDoc();
+  if (!doc) return;
+  const msg = currentDocType === 'invoice' ? buildInvoiceWhatsAppMsg(doc) : buildWhatsAppMsg(doc);
+  window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
+}
+
+function shareFacebook() {
+  const doc = getActiveDoc();
+  if (!doc) return;
+  const text = currentDocType === 'invoice' ? buildInvoiceWhatsAppMsg(doc) : buildWhatsAppMsg(doc);
+  window.open('https://www.facebook.com/sharer/sharer.php?quote=' + encodeURIComponent(text) + '&u=' + encodeURIComponent(location.href), '_blank');
+}
+
+function shareInstagram() {
+  const doc = getActiveDoc();
+  if (!doc) return;
+  const msg = currentDocType === 'invoice' ? buildInvoiceWhatsAppMsg(doc) : buildWhatsAppMsg(doc);
+  navigator.clipboard.writeText(msg).then(() => {
+    showToast('✓ Text copied! Paste in Instagram.');
+  }).catch(() => {
+    showToast('Open Instagram and share your saved image');
+  });
+}
+
+// ===== EMAIL =====
+function buildPlainMessageForEmail(doc, docType) {
+  // Plain-text version of the same content used for WhatsApp, without
+  // markdown-style asterisks/underscores, since email renders as HTML text.
+  let msg = '';
+  if (docType === 'invoice') {
+    msg += `Invoice ${doc.invoiceNo}\nDate: ${doc.dateStr}\n`;
+    if (doc.dueDateStr) msg += `Due: ${doc.dueDateStr}\n`;
+    msg += `\nBill To: ${doc.name}\n`;
+    if (doc.phone) msg += `Phone: ${doc.phone}\n`;
+    if (doc.serviceType) msg += `Service: ${doc.serviceType}\n`;
+    msg += `\n`;
+    doc.items.forEach(item => { msg += `${item.desc}${item.unit ? ` (${item.unit})` : ''} — ${fmt(item.total)}\n`; });
+    msg += `\nTOTAL DUE: ${fmt(doc.grandTotal)}\n`;
+    msg += `Status: ${doc.payStatus === 'Paid' ? 'PAID' : 'UNPAID'}\n`;
+    if (doc.bankName || doc.bankAcctNo) {
+      msg += `\nPayment Details:\n`;
+      if (doc.bankName) msg += `Bank: ${doc.bankName}\n`;
+      if (doc.bankAcctName) msg += `Account Name: ${doc.bankAcctName}\n`;
+      if (doc.bankAcctNo) msg += `Account Number: ${doc.bankAcctNo}\n`;
+    }
+    if (doc.terms) msg += `\n${doc.terms}\n`;
+    if (doc.contract) msg += `\nNote: A signed contract (${doc.contract.name}) was attached to this invoice. Please contact us if you'd like a copy.\n`;
+  } else {
+    msg += `Receipt No: ${doc.receiptNo}\nDate: ${doc.dateStr}\n\n`;
+    msg += `Client: ${doc.name}\n`;
+    if (doc.phone) msg += `Phone: ${doc.phone}\n`;
+    if (doc.serviceType) msg += `Service: ${doc.serviceType}\n`;
+    msg += `\n`;
+    doc.items.forEach(item => { msg += `${item.desc}${item.unit ? ` (${item.unit})` : ''} — ${fmt(item.total)}\n`; });
+    msg += `\nStatus: ${doc.payStatus}\n`;
+    if (doc.payStatus === 'Part payment') {
+      msg += `Paid: ${fmt(doc.amountPaid)}  |  Balance: ${fmt(doc.grandTotal - doc.amountPaid)}\n`;
+    }
+    msg += `\nTOTAL: ${fmt(doc.grandTotal)}\n`;
+    if (doc.note) msg += `\n${doc.note}\n`;
+  }
+  return msg;
+}
+
+function emailDocument() {
+  const doc = getActiveDoc();
+  if (!doc) { showToast('⚠️ Nothing to send yet'); return; }
+  if (typeof emailjs === 'undefined') { showToast('⚠️ Email service not available. Reload and try again.'); return; }
+
+  const toEmail = doc.email && doc.email.trim();
+  if (!toEmail) {
+    showToast('⚠️ No client email on this ' + (currentDocType === 'invoice' ? 'invoice' : 'receipt'));
+    return;
+  }
+
+  const docLabel = currentDocType === 'invoice' ? 'Invoice' : 'Receipt';
+  const docNumber = currentDocType === 'invoice' ? doc.invoiceNo : doc.receiptNo;
+  const bizName = currentDocType === 'invoice' ? doc.bizName : (settings.bizname || 'My Business').toUpperCase();
+  const message = buildPlainMessageForEmail(doc, currentDocType);
+
+  const params = {
+    to_email: toEmail,
+    client_name: doc.name,
+    doc_type: docLabel,
+    doc_number: docNumber,
+    biz_name: bizName,
+    message: message
+  };
+
+  const spinner = document.getElementById('spinner');
+  document.getElementById('spinner-lbl').textContent = 'Sending email…';
+  spinner.classList.add('show');
+
+  emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, params)
+    .then(() => {
+      spinner.classList.remove('show');
+      showToast('✉️ ' + docLabel + ' sent to ' + toEmail);
+    })
+    .catch(err => {
+      spinner.classList.remove('show');
+      console.error('EmailJS error:', err);
+      showToast('⚠️ Could not send email. ' + (err && err.text ? err.text : 'Please try again.'));
+    });
+}
+
+// ===== HISTORY =====
+function updateHistoryPage() {
+  const container = document.getElementById('history-list');
+  const empty = document.getElementById('history-empty');
+  if (history.length === 0) {
+    empty.style.display = 'block';
+    container.innerHTML = '';
+    return;
+  }
+  empty.style.display = 'none';
+
+  // Group entries by month (using the timestamp they were created)
+  const groups = {}; // key: "2026-06" -> { label: "June 2026", items: [...] }
+  history.forEach(r => {
+    const d = new Date(r.ts || Date.now());
+    const key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+    if (!groups[key]) {
+      groups[key] = { label: d.toLocaleDateString('en-GB', {month:'long', year:'numeric'}), items: [] };
+    }
+    groups[key].items.push(r);
+  });
+
+  // Sort month keys descending (most recent month first)
+  const sortedKeys = Object.keys(groups).sort((a,b) => b.localeCompare(a));
+
+  container.innerHTML = sortedKeys.map((key, idx) => {
+    const group = groups[key];
+    const isOpen = idx === 0; // most recent month starts expanded
+    const total = group.items.reduce((s, r) => s + (r.grandTotal || 0), 0);
+    const itemsHTML = group.items.map(r => {
+      const docType = r.docType || 'receipt';
+      const docNo = docType === 'invoice' ? r.invoiceNo : r.receiptNo;
+      const typeTag = docType === 'invoice'
+        ? `<span style="font-size:9px;font-weight:800;padding:2px 6px;border-radius:8px;background:rgba(124,92,252,.18);color:#a78bfa;margin-right:6px">INVOICE</span>`
+        : `<span style="font-size:9px;font-weight:800;padding:2px 6px;border-radius:8px;background:rgba(34,197,94,.15);color:#22c55e;margin-right:6px">RECEIPT</span>`;
+      const statusClass = r.payStatus==='Paid'?'paid':r.payStatus==='Pending'||r.payStatus==='Unpaid'?'pending':'part';
+      return `
+      <div class="history-item" onclick="reloadDoc('${r.id}')">
+        <div class="hi-top">
+          <div class="hi-name">${typeTag}${r.name}</div>
+          <div class="hi-amount">${fmt(r.grandTotal)}</div>
+        </div>
+        <div class="hi-meta">${docNo} · ${r.dateStr} · <span class="${statusClass}" style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px">${r.payStatus}</span></div>
+      </div>`;
+    }).join('');
+
+    return `
+    <div class="history-month-group">
+      <div class="history-month-header" onclick="toggleHistoryMonth('month-${key}')">
+        <div style="display:flex;align-items:center;gap:8px">
+          <svg id="chev-month-${key}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="transition:transform .2s;transform:rotate(${isOpen?90:0}deg)"><polyline points="9 18 15 12 9 6"/></svg>
+          <span class="history-month-label">${group.label}</span>
+          <span class="history-month-count">${group.items.length}</span>
+        </div>
+        <span class="history-month-total">${fmt(total)}</span>
+      </div>
+      <div class="history-month-items" id="month-${key}" style="display:${isOpen?'block':'none'}">
+        ${itemsHTML}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleHistoryMonth(id) {
+  const el = document.getElementById(id);
+  const chev = document.getElementById('chev-' + id);
+  const isOpen = el.style.display !== 'none';
+  el.style.display = isOpen ? 'none' : 'block';
+  if (chev) chev.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(90deg)';
+}
+
+function reloadDoc(id) {
+  const r = history.find(h => h.id === id);
+  if (!r) return;
+  const docType = r.docType || 'receipt';
+  if (docType === 'invoice') {
+    currentInvoice = r;
+    currentDocType = 'invoice';
+    renderInvoiceCard(r);
+  } else {
+    currentReceipt = r;
+    currentDocType = 'receipt';
+    renderReceiptCard(r);
+  }
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('receipt-output').style.display = 'block';
+  switchTab('preview');
+}
+
+// ===== SUBSCRIBE =====
+let proofDataUrl = '';
+let selectedPlan = { plan: 'growth', days: 180, amount: 3000, name: 'Growth', duration: '6 Months' };
+
+function selectPlan(card) {
+  document.querySelectorAll('.plan-card').forEach(c => c.classList.remove('selected'));
+  card.classList.add('selected');
+  selectedPlan = {
+    plan: card.dataset.plan,
+    days: parseInt(card.dataset.days),
+    amount: parseInt(card.dataset.amount),
+    name: card.querySelector('.plan-name').textContent,
+    duration: card.querySelector('.plan-duration').textContent
+  };
+  const amountFmt = '₦' + selectedPlan.amount.toLocaleString('en-NG');
+  document.getElementById('selected-amount-display').textContent = amountFmt;
+}
+
+function showSubscribeModal() {
+  document.getElementById('sub-step1').style.display = 'block';
+  document.getElementById('sub-step2').style.display = 'none';
+  document.getElementById('sub-step3').style.display = 'none';
+  // Reset to default selected plan (Growth)
+  document.querySelectorAll('.plan-card').forEach(c => c.classList.remove('selected'));
+  const defaultCard = document.querySelector('.plan-card[data-plan="growth"]');
+  if (defaultCard) defaultCard.classList.add('selected');
+  selectedPlan = { plan: 'growth', days: 180, amount: 3000, name: 'Growth', duration: '6 Months' };
+  document.getElementById('selected-amount-display').textContent = '₦3,000';
+  document.getElementById('sub-modal').classList.add('show');
+}
+function closeSubModal() { document.getElementById('sub-modal').classList.remove('show'); }
+
+function copyAcctNo() {
+  navigator.clipboard.writeText('0110100240').then(() => {
+    showToast('✓ Account number copied!');
+  }).catch(() => {
+    showToast('Account: 0110100240');
+  });
+}
+
+function goToProofStep() {
+  const amountFmt = '₦' + selectedPlan.amount.toLocaleString('en-NG');
+  document.getElementById('step2-plan-summary').textContent =
+    selectedPlan.name + ' Plan · ' + selectedPlan.duration + ' · ' + amountFmt;
+  document.getElementById('sub-step1').style.display = 'none';
+  document.getElementById('sub-step2').style.display = 'block';
+}
+
+function backToStep1() {
+  document.getElementById('sub-step2').style.display = 'none';
+  document.getElementById('sub-step1').style.display = 'block';
+}
+
+function payWithPaystack() {
+  const emailInput = document.getElementById('sub-email-input');
+  const email = emailInput ? emailInput.value.trim() : '';
+  if (!email || !email.includes('@')) {
+    showToast('⚠️ Please enter a valid email address');
+    if (emailInput) emailInput.focus();
+    return;
+  }
+
+  const amountKobo = selectedPlan.amount * 100; // Paystack uses kobo
+
+  const handler = PaystackPop.setup({
+    key: 'pk_live_e2a18f549e310af431488c26c4f333762bc417a1',
+    email: email,
+    amount: amountKobo,
+    currency: 'NGN',
+    ref: 'RLY_' + Date.now() + '_' + Math.random().toString(36).substr(2,6).toUpperCase(),
+    metadata: {
+      custom_fields: [
+        { display_name: 'Plan', variable_name: 'plan', value: selectedPlan.name },
+        { display_name: 'Duration', variable_name: 'duration', value: selectedPlan.duration }
+      ]
+    },
+    callback: function(response) {
+      // Payment successful — show waiting screen
+      document.getElementById('sub-step1').style.display = 'none';
+      document.getElementById('sub-step2').style.display = 'none';
+      document.getElementById('sub-step3').style.display = 'block';
+      document.getElementById('sub-step3').innerHTML = `
+        <div style="font-size:48px;margin-bottom:12px">✅</div>
+        <h2 style="font-size:19px;margin-bottom:10px">Payment Successful!</h2>
+        <p style="font-size:13px;color:var(--text-muted);line-height:1.7;margin-bottom:16px">
+          Your access code is being generated and will be sent to <strong>${email}</strong> in seconds.
+          Check your inbox (and spam folder).
+        </p>
+        <div style="background:var(--surface2);border:1px solid var(--border-strong);border-radius:var(--rad-sm);padding:14px;margin-bottom:16px;font-size:13px;color:var(--text-muted);line-height:1.7">
+          Already received your code? Enter it below:
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:14px">
+          <input id="access-code-input" type="text" placeholder="Enter access code" style="flex:1;padding:12px 14px;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--rad-sm);color:var(--text);font-size:14px;font-family:inherit;text-align:center;letter-spacing:0.12em;text-transform:uppercase"/>
+          <button onclick="verifyAccessCode()" style="padding:12px 16px;background:var(--accent);border:none;border-radius:var(--rad-sm);color:#fff;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;white-space:nowrap">Verify</button>
+        </div>
+        <div class="sub-cancel" onclick="closeSubModal()">Close</div>
+      `;
+    },
+    onClose: function() {
+      showToast('Payment cancelled');
+    }
+  });
+  handler.openIframe();
+}
+
+function handleProofUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) { showToast('⚠️ Image too large (max 5MB)'); return; }
+  const reader = new FileReader();
+  reader.onload = ev => {
+    proofDataUrl = ev.target.result;
+    document.getElementById('proof-preview-img').src = proofDataUrl;
+    document.getElementById('proof-placeholder').style.display = 'none';
+    document.getElementById('proof-preview-wrap').style.display = 'block';
+    document.getElementById('proof-upload-area').style.borderColor = '#22c55e';
+  };
+  reader.readAsDataURL(file);
+}
+
+async function submitProof() {
+  const name = document.getElementById('proof-name').value.trim();
+  const phone = document.getElementById('proof-phone').value.trim();
+  if (!proofDataUrl) { showToast('\u26a0\ufe0f Please upload your payment screenshot'); return; }
+  if (!name) { showToast('\u26a0\ufe0f Please enter your name'); return; }
+  if (!phone) { showToast('\u26a0\ufe0f Please enter your WhatsApp number'); return; }
+
+  const adminWA = '2347043093929';
+  const amountFmt = '\u20a6' + selectedPlan.amount.toLocaleString('en-NG');
+  let msg = `*RECEIPTLY SUBSCRIPTION PROOF*\n\n`;
+  msg += `*Name:* ${name}\n`;
+  msg += `*Phone:* ${phone}\n`;
+  msg += `*Plan:* ${selectedPlan.name} (${selectedPlan.duration})\n`;
+  msg += `*Amount Paid:* ${amountFmt}\n`;
+  msg += `*Date:* ${new Date().toLocaleString('en-GB')}\n\n`;
+  msg += `I have transferred ${amountFmt} to Union Bank account 0110100240 (Eno Richard Patrick).\n`;
+  msg += `Payment evidence attached. Please verify and send my access code. \ud83d\ude4f`;
+
+  // Always go straight to WhatsApp chat with the admin number — using the
+  // native share sheet here would let the user pick ANY contact/app, and
+  // most users don't have the admin's number saved, so they'd have no way
+  // to find the right chat. wa.me links can't carry an attached image, so
+  // we download the screenshot first and ask the user to attach it once
+  // they land in the (correct) chat.
+  try {
+    const a = document.createElement('a');
+    a.href = proofDataUrl;
+    a.download = `receiptly-payment-proof-${Date.now()}.jpg`;
+    a.click();
+  } catch(e) {}
+  await new Promise(r => setTimeout(r, 800));
+  const fallbackMsg = msg + '\n\n(Payment screenshot saved to your device — please attach it in this chat.)';
+  window.open(`https://wa.me/${adminWA}?text=${encodeURIComponent(fallbackMsg)}`, '_blank');
+
+  document.getElementById('sub-step2').style.display = 'none';
+  document.getElementById('sub-step3').style.display = 'block';
+}
+
+// ===== CUSTOMER CARE =====
+function openCustomerCare() {
+  const careWA = '2347043093929';
+  const name = currentUser && currentUser.name ? currentUser.name : '';
+  let msg = `Hi Receiptly support, I need help with the app.`;
+  if (name) msg = `Hi, this is ${name}. I need help with Receiptly.`;
+  window.open(`https://wa.me/${careWA}?text=${encodeURIComponent(msg)}`, '_blank');
+}
+
+
+async function verifyAccessCode() {
+  const codeInput = document.getElementById('access-code-input');
+  const code = codeInput.value.trim().toUpperCase();
+  if (!code) { showToast('⚠️ Enter an access code'); return; }
+  if (!currentUser) { showToast('⚠️ Please log in first'); return; }
+  if (typeof window.fb === 'undefined') { showToast('⚠️ Not connected to the server. Reload and try again.'); return; }
+
+  try {
+    const codeData = await window.fb.get('codes', code);
+
+    if (!codeData) {
+      showToast('❌ Invalid code. Check your WhatsApp for the correct code.');
+      flashError(codeInput);
+      return;
+    }
+    if (codeData.used) {
+      showToast('❌ This code has already been used.');
+      flashError(codeInput);
+      return;
+    }
+
+    // Mark code as used
+    codeData.used = true;
+    codeData.usedBy = currentUser.id;
+    codeData.usedAt = Date.now();
+    await window.fb.set('codes', code, codeData);
+
+    // Duration comes from the code record; fall back to 30 days for old codes
+    const durationDays = codeData.durationDays || 30;
+    const durationMs = durationDays * 24 * 60 * 60 * 1000;
+    currentUser.subscribed = true;
+    currentUser.subscriptionExpiresAt = Date.now() + durationMs;
+    await window.fb.set('users', currentUser.id, currentUser);
+
+    isSubscribed = true;
+    localStorage.setItem('rly_sub', '1');
+    localStorage.setItem('rly_sub_expires', String(currentUser.subscriptionExpiresAt));
+    renderFreeUI();
+    closeSubModal();
+    const planLabel = codeData.planName ? `${codeData.planName} plan` : `${durationDays}-day plan`;
+    showToast(`🎉 Access granted! Pro unlocked — ${planLabel}`);
+  } catch (err) {
+    console.error('Access code error:', err);
+    showToast('⚠️ Error: ' + (err && err.message ? err.message : String(err)));
+  }
+}
+
+function flashError(el) {
+  el.style.borderColor = '#ef4444';
+  setTimeout(() => { el.style.borderColor = ''; }, 2000);
+}
+
+
+// ===== NEW RECEIPT =====
+function newReceipt() {
+  switchTab('form');
+  document.getElementById('lineItems').innerHTML = '';
+  for (let i = 0; i < 5; i++) addLineItem();
+  document.getElementById('clientName').value = '';
+  document.getElementById('phone').value = '';
+  document.getElementById('email').value = '';
+  document.getElementById('noteToClient').value = '';
+  document.getElementById('rec-manualTotal').value = '';
+}
+
+// Dispatches to the right "edit" flow based on what's in Preview
+function editCurrentDoc() {
+  if (currentDocType === 'invoice') editCurrentInvoice(); else editCurrentReceipt();
+}
+
+function editCurrentReceipt() {
+  if (!currentReceipt) return;
+  const r = currentReceipt;
+  document.getElementById('clientName').value = r.name || '';
+  document.getElementById('phone').value = r.phone || '';
+  document.getElementById('email').value = r.email || '';
+  document.getElementById('serviceType').value = r.serviceType || '';
+  document.getElementById('payment').value = r.payment || '';
+  document.getElementById('payStatus').value = r.payStatus || 'Paid';
+  togglePartPayment();
+  document.getElementById('amountPaid').value = r.amountPaid || '';
+  document.getElementById('noteToClient').value = r.note || '';
+  document.getElementById('rec-manualTotal').value = r.useManualTotal ? r.grandTotal : '';
+  // Restore line items
+  document.getElementById('lineItems').innerHTML = '';
+  if (r.items && r.items.length) {
+    // Backward compatible: older saved receipts only have `amount` (no
+    // separate price/qty) — treat that as price with qty 1.
+    r.items.forEach(item => addLineItem(item.desc || '', item.unit || '', item.price ?? item.amount ?? '', item.qty || 1));
+  } else {
+    addLineItem();
+  }
+  switchTab('form');
+  showToast('✏️ Edit your receipt, then tap Generate');
+}
+
+function editCurrentInvoice() {
+  if (!currentInvoice) return;
+  const inv = currentInvoice;
+  // Restore all fields
+  document.getElementById('inv-clientName').value = inv.name || '';
+  document.getElementById('inv-phone').value = inv.phone || '';
+  document.getElementById('inv-email').value = inv.email || '';
+  document.getElementById('inv-clientAddress').value = inv.clientAddress || '';
+  document.getElementById('inv-serviceType').value = inv.serviceType || '';
+  document.getElementById('inv-payStatus').value = inv.payStatus || 'Unpaid';
+  document.getElementById('inv-terms').value = inv.terms || '';
+  document.getElementById('inv-manualTotal').value = inv.useManualTotal ? inv.grandTotal : '';
+  // Package & delivery
+  document.getElementById('inv-pkg-name').value = inv.pkgName || '';
+  document.getElementById('inv-pkg-qty').value = inv.pkgQty || '';
+  document.getElementById('inv-pkg-desc').value = inv.pkgDesc || '';
+  document.getElementById('inv-delivery-method').value = inv.deliveryMethod || '';
+  document.getElementById('inv-delivery-fee').value = inv.deliveryFee || '';
+  document.getElementById('inv-delivery-addr').value = inv.deliveryAddr || '';
+  document.getElementById('inv-tracking-no').value = inv.trackingNo || '';
+  // Restore line items
+  document.getElementById('inv-lineItems').innerHTML = '';
+  if (inv.items && inv.items.length) {
+    // Backward compatible: older saved invoices only have `amount` (no
+    // separate price/qty) — treat that as price with qty 1.
+    inv.items.forEach(item => addInvoiceLineItem(item.desc || '', item.unit || '', item.price ?? item.amount ?? '', item.qty || 1));
+  } else {
+    addInvoiceLineItem();
+  }
+  switchTab('invoiceform');
+  showToast('✏️ Edit your invoice, then tap Generate');
+}
+
+function newInvoice() {
+  switchTab('invoiceform');
+  document.getElementById('inv-lineItems').innerHTML = '';
+  for (let i = 0; i < 5; i++) addInvoiceLineItem();
+  document.getElementById('inv-clientName').value = '';
+  document.getElementById('inv-phone').value = '';
+  document.getElementById('inv-email').value = '';
+  document.getElementById('inv-clientAddress').value = '';
+  document.getElementById('inv-terms').value = '';
+  document.getElementById('inv-duedate').value = '';
+  document.getElementById('inv-manualTotal').value = '';
+  document.getElementById('inv-pkg-name').value = '';
+  document.getElementById('inv-pkg-qty').value = '';
+  document.getElementById('inv-pkg-desc').value = '';
+  document.getElementById('inv-delivery-method').value = '';
+  document.getElementById('inv-delivery-fee').value = '';
+  document.getElementById('inv-delivery-addr').value = '';
+  document.getElementById('inv-delivery-date').value = '';
+  document.getElementById('inv-tracking-no').value = '';
+  removeContract();
+  generateInvoiceNumber();
+}
+
+// Dispatches to the right "new document" flow based on what's in Preview
+function newDoc() {
+  if (currentDocType === 'invoice') newInvoice(); else newReceipt();
+}
+
+// ===== TOAST =====
+function showToast(msg, dur) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), dur || 2600);
+}
+
+// ===== BOOT =====
+boot();
+</script>
+</body>
+</html>
